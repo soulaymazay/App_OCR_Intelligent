@@ -1,0 +1,45 @@
+/* ═══════════════════════════════════════════════════════════════
+   OCR Intelligent — styles visuels dédiés
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Vue liste : fond coloré des lignes selon le statut ───────── */
+.list-row-container:has(.indicator-pill.green)  { background: rgba(40, 167, 69,  0.06) !important; }
+.list-row-container:has(.indicator-pill.red)    { background: rgba(220, 53,  69,  0.07) !important; }
+.list-row-container:has(.indicator-pill.orange) { background: rgba(253, 126, 20,  0.07) !important; }
+.list-row-container:has(.indicator-pill.blue)   { background: rgba(13,  110, 253, 0.05) !important; }
+.list-row-container:has(.indicator-pill.gray)   { background: rgba(108, 117, 125, 0.04) !important; }
+
+/* Légère bordure gauche colorée sur les lignes */
+.list-row-container:has(.indicator-pill.green)  { border-left: 3px solid rgba(40, 167, 69, .35)  !important; }
+.list-row-container:has(.indicator-pill.red)    { border-left: 3px solid rgba(220, 53,  69, .35) !important; }
+.list-row-container:has(.indicator-pill.orange) { border-left: 3px solid rgba(253, 126, 20, .35) !important; }
+.list-row-container:has(.indicator-pill.blue)   { border-left: 3px solid rgba(13,  110, 253, .3) !important; }
+
+/* ── Vue formulaire : panneau côte-à-côte responsive ─────────── */
+.ocr-split-view {
+    font-family: inherit;
+}
+
+/* Sur petits écrans : basculer en colonne unique */
+@media (max-width: 900px) {
+    .ocr-split-view > div > div[style*="grid-template-columns"] {
+        grid-template-columns: 1fr !important;
+    }
+    .ocr-split-view > div > div > div:first-child {
+        border-right: none !important;
+        border-bottom: 1px solid #e9ecef;
+    }
+}
+
+/* ── Placeholder prévisualisation vide ────────────────────────── */
+.ocr-empty-preview {
+    padding: 60px 20px;
+    text-align: center;
+    color: #adb5bd;
+    font-size: 14px;
+}
+
+/* ── Amélioration générale des indicateurs de statut ─────────── */
+.indicator-pill.orange {
+    background-color: #fd7e14;
+}
