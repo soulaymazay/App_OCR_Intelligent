@@ -260,6 +260,15 @@ function _ocr_bom_traiter_resultat(frm, dialog, result) {
     const champs = result.champs_remplis || {};
     const score  = result.score_confiance || 0;
 
+    // ← Priorité : _source_file_url injecté par polling, puis file_url du backend
+    const file_url_final = result._source_file_url || result.file_url || "";
+    console.log("[OCR BOM] traiter_resultat - file_url_final:", file_url_final);
+    console.log("[OCR BOM] traiter_resultat - result._source_file_url:", result._source_file_url);
+    console.log("[OCR BOM] traiter_resultat - result.file_url:", result.file_url);
+    
+    // Garantir que la valeur est dans result avant de passer aux fonctions suivantes
+    result._source_file_url = file_url_final;
+
     if (!Object.keys(champs).length && !(result.composants || []).length) {
         _ocr_bom_set_progress(dialog, "warning",
             "⚠️ Aucun champ nomenclature extrait. Vérifiez la qualité du document.");
@@ -482,8 +491,10 @@ function _ocr_bom_appliquer(frm, vals, composants, enregistrer, result) {
     composants = Array.isArray(composants) ? composants : [];
     const source_file_url = (result && result._source_file_url) || "";
     
-    console.log(`[OCR BOM] _ocr_bom_appliquer appelé avec source_file_url:`, source_file_url);
-    console.log(`[OCR BOM] result._source_file_url:`, result && result._source_file_url);
+    console.log("[OCR BOM] source_file_url:", source_file_url);
+    console.log("[OCR BOM] result._source_file_url:", result && result._source_file_url);
+    console.log("[OCR BOM] result.file_url:", result && result.file_url);
+    console.log("[OCR BOM] frm.doc.name:", frm.doc.name);
 
     const champs_remplis = [];
     const champs_ignores = [];
@@ -505,13 +516,13 @@ function _ocr_bom_appliquer(frm, vals, composants, enregistrer, result) {
     }
 
     // ── Composants (child table) ─────────────────────────────────────
-    const composants_ok = composants.filter(c => c.item_exists !== false && c.item_code);
+    const composants_ok      = composants.filter(c => c.item_exists !== false && c.item_code);
     const composants_ignores = composants.filter(c => c.item_exists === false || !c.item_code);
+
     if (composants_ok.length) {
         console.log(`[OCR BOM] Ajout de ${composants_ok.length} composants`);
-        
-        // Si la table contient uniquement des lignes vides/incomplètes, on repart proprement.
-        const existing_items = Array.isArray(frm.doc.items) ? frm.doc.items : [];
+
+        const existing_items   = Array.isArray(frm.doc.items) ? frm.doc.items : [];
         const has_valid_existing = existing_items.some(r => r && r.item_code && r.uom);
         if (!has_valid_existing) {
             console.log(`[OCR BOM] Nettoyage table items (lignes vides)`);
@@ -520,27 +531,22 @@ function _ocr_bom_appliquer(frm, vals, composants, enregistrer, result) {
 
         composants_ok.forEach((comp, idx) => {
             try {
-                console.log(`[OCR BOM] Ajout composant ${idx+1}:`, comp.item_code);
+                console.log(`[OCR BOM] Ajout composant ${idx + 1}:`, comp.item_code);
                 const row = frappe.model.add_child(frm.doc, "BOM Item", "items");
-                
-                // Définir les propriétés une par une avec gestion d'erreur
-                if (comp.item_code) row.item_code = String(comp.item_code);
-                if (comp.item_name) row.item_name = String(comp.item_name);
+
+                if (comp.item_code)              row.item_code         = String(comp.item_code);
+                if (comp.item_name)              row.item_name         = String(comp.item_name);
                 if (comp.description || comp.item_name) row.description = String(comp.description || comp.item_name);
-                if (comp.qty) row.qty = parseFloat(comp.qty) || 1;
-                if (comp.uom) row.uom = String(comp.uom);
-                else row.uom = "Nos";
-                if (comp.qty_per_unit) row.qty_per_unit = parseFloat(comp.qty_per_unit) || parseFloat(comp.qty) || 1;
-                else row.qty_per_unit = parseFloat(comp.qty) || 1;
-                if (comp.stock_uom) row.stock_uom = String(comp.stock_uom);
-                else row.stock_uom = String(comp.uom || "Nos");
-                if (comp.conversion_factor) row.conversion_factor = parseFloat(comp.conversion_factor) || 1;
-                else row.conversion_factor = 1;
-                if (comp.rate) row.rate = parseFloat(comp.rate);
-                
-                console.log(`[OCR BOM] Composant ${idx+1} ajouté avec succès`);
+                if (comp.qty)                    row.qty               = parseFloat(comp.qty) || 1;
+                row.uom               = comp.uom        ? String(comp.uom)        : "Nos";
+                row.qty_per_unit      = comp.qty_per_unit ? parseFloat(comp.qty_per_unit) : (parseFloat(comp.qty) || 1);
+                row.stock_uom         = comp.stock_uom  ? String(comp.stock_uom)  : String(comp.uom || "Nos");
+                row.conversion_factor = comp.conversion_factor ? parseFloat(comp.conversion_factor) : 1;
+                if (comp.rate)                   row.rate              = parseFloat(comp.rate);
+
+                console.log(`[OCR BOM] Composant ${idx + 1} ajouté avec succès`);
             } catch (err) {
-                console.error(`[OCR BOM] Erreur ajout composant ${idx+1}:`, err);
+                console.error(`[OCR BOM] Erreur ajout composant ${idx + 1}:`, err);
             }
         });
 
@@ -599,19 +605,18 @@ function _ocr_bom_appliquer(frm, vals, composants, enregistrer, result) {
 
         frappe.after_ajax(() => {
             console.log(`[OCR BOM] Sauvegarde BOM avec source_file_url:`, source_file_url);
-            // ✅ Utiliser la même approche que les autres modules (Article, Payment Entry, etc.)
+
             frm.save()
                 .then(() => {
                     frappe.show_alert({ message: __("✅ Nomenclature enregistrée."), indicator: "green" }, 3);
-                    
-                    // Attacher la copie originale du document OCR (même méthode que module Article)
+
                     const _doctype = frm.doctype;
-                    const _docname = frm.doc.name || frm.docname;
-                    const _furl = source_file_url;
-                    
-                    console.log(`[OCR BOM] Après save, attachement: ${_doctype}/${_docname}, file=${_furl}`);
-                    
-                    if (_furl && _docname) {
+                    const _docname = frm.doc.name;
+                    const _furl    = result._source_file_url || result.file_url || source_file_url || "";
+
+                    console.log(`[OCR BOM] Post-save: ${_doctype}/${_docname}, file=${_furl}`);
+
+                    if (_furl && _docname && !_docname.startsWith("new-")) {
                         frappe.call({
                             method: "ocr_intelligent.api.auto_create_document.attacher_copie_originale",
                             args: { doctype: _doctype, docname: _docname, file_url: _furl },
@@ -630,16 +635,22 @@ function _ocr_bom_appliquer(frm, vals, composants, enregistrer, result) {
                             },
                         });
                     } else {
-                        console.warn(`[OCR BOM] Pas d'attachement: _furl=${_furl}, _docname=${_docname}`);
+                        console.warn(`[OCR BOM] Attachement ignoré: furl=${_furl}, docname=${_docname}`);
                     }
                 })
                 .catch(err => {
-                    console.error(`[OCR BOM] Erreur save:`, err);
-                    frappe.msgprint({ title: __("Erreur"), message: __("Échec de l'enregistrement."), indicator: "red" });
+                    console.error(`[OCR BOM] Save échoué:`, err);
+                    frappe.msgprint({
+                        title: __("Enregistrement incomplet"),
+                        message: __("Le BOM a été rempli mais l'enregistrement a échoué — vérifiez les champs obligatoires (ex: Prix des composants)."),
+                        indicator: "orange",
+                    });
                 });
         });
     }
 }
+
+
 
 // ─────────────────────────────────────────────────────────────────────
 // UTILITAIRES UI

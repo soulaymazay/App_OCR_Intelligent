@@ -304,6 +304,7 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
     try:
         from ocr_intelligent.ocr.ocr_engine import get_engine
         engine = get_engine()
+        
         try:
             res_ocr = engine.extraire_texte(chemin_tmp)
         except Exception as e:

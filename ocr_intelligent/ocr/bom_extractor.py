@@ -152,42 +152,61 @@ def _extraire_article(t, lignes, champs, confiances):
             confiances["item_name"] = 0.80
             return
 
-    # Fallback: code article seul
-    m = re.search(r'article\s*[:\-]?\s*([A-Z0-9]{3,12})', t, re.IGNORECASE)
+    # Fallback: "Article: 0001" en début de ligne uniquement
+    # re.MULTILINE + ^ évite de matcher "de l'Article" dans les en-têtes du tableau
+    m = re.search(r'^article\s*[:\-]\s*([A-Z0-9]{2,12})', t, re.IGNORECASE | re.MULTILINE)
     if m:
         champs["item"] = m.group(1).strip()
         confiances["item"] = 0.60
 
-    # Extraction séparée du nom article depuis ligne "Nom Article : ..."
+    # Extraction du nom article — cherche la dernière occurrence
+    # pour éviter de capturer "Nom de l'article" qui est aussi un en-tête de colonne du tableau
     if "item_name" not in champs:
-        m = re.search(r'nom\s+article\s*[:\|]?\s*(.+)', t, re.IGNORECASE)
-        if m:
-            val = m.group(1).strip().split('\n')[0].strip()
-            # Tronquer avant la prochaine étiquette connue
-            val = re.split(r'\s{2,}|\t|devise|taux|soci', val, flags=re.IGNORECASE)[0].strip()
-            if len(val) > 2:
-                champs["item_name"] = val[:80]
-                confiances["item_name"] = 0.80
+        t_oneline = re.sub(r'\n+', ' ', t)
+        for pat_nom in [
+            r'nom\s+de\s+l.article\s*[:\|]?\s*(\S[^|]{1,79})',
+            r'nom\s+article\s*[:\|]?\s*(\S[^|]{1,79})',
+        ]:
+            matches = list(re.finditer(pat_nom, t_oneline, re.IGNORECASE))
+            if matches:
+                val = matches[-1].group(1).strip()
+                val = re.split(
+                    r'\s{2,}|devise|taux|soci|description|nomenclature|is\s+stock|page\s+\d',
+                    val, flags=re.IGNORECASE
+                )[0].strip()
+                if len(val) > 1 and not re.match(
+                    r'^(is\s+stock|description|code\s+de|sr\b|nom\s+de)',
+                    val, re.IGNORECASE
+                ):
+                    champs["item_name"] = val[:80]
+                    confiances["item_name"] = 0.80
+                    break
 
 
 def _extraire_societe(t, lignes, champs, confiances):
-    """Extrait la société / groupe"""
     patterns = [
+        r'soci[eé]t[eé]\s*[:\-]?\s*(Groupe\s+[A-Za-zÀ-ÿ0-9\s\-]+)',  # ← EN PREMIER
         r'soci[eé]t[eé]\s*[/\|]\s*groupe\s+(.+)',
         r'groupe\s*[:\-]?\s*(.+)',
         r'company\s*[:\-]?\s*(.+)',
         r'soci[eé]t[eé]\s*[:\-]?\s*(.+)',
     ]
+    _STOP = re.compile(
+        r'est\s+(actif|d[eé]faut)|udm|unit[eé]|quantit[eé]|devise|taux|routing|gamme|transfert|statut|nomenclature|bom',
+        re.IGNORECASE
+    )
     for pat in patterns:
         m = re.search(pat, t, re.IGNORECASE)
         if m:
             val = m.group(1).strip().split('\n')[0].strip()
+            stop_m = _STOP.search(val)
+            if stop_m:
+                val = val[:stop_m.start()].strip()
             val = re.sub(r'\s{2,}', ' ', val)[:80]
             if len(val) > 2:
                 champs["company"] = val
                 confiances["company"] = 0.80
                 return
-
 
 def _extraire_quantite(t, lignes, champs, confiances):
     """Extrait la quantité produite"""
@@ -209,6 +228,7 @@ def _extraire_quantite(t, lignes, champs, confiances):
 def _extraire_uom(t, lignes, champs, confiances):
     """Extrait l'unité de mesure"""
     patterns = [
+        r'udm\s+de\s+l.article\s*[:\-]?\s*(\S+)',   # ← AJOUTER EN PREMIER
         r'unit[eé]\s+de\s+mesure\s+(.+)',
         r'uom\s*[:\-]?\s*(.+)',
         r'udm\s*[:\-]?\s*(.+)',
@@ -224,19 +244,19 @@ def _extraire_uom(t, lignes, champs, confiances):
 
 
 def _extraire_devise(t, lignes, champs, confiances):
-    """Extrait la devise"""
-    m = re.search(r'devise\s+([A-Z]{2,4})', t, re.IGNORECASE)
+    m = re.search(r'devise\s*[:\-]?\s*([A-Z]{2,4})\b', t, re.IGNORECASE)
     if m:
-        champs["currency"] = m.group(1).upper()
-        confiances["currency"] = 0.90
-        return
-    # Détection par motif TND/EUR/USD/MAD présent dans le texte
+        val = m.group(1).upper()
+        # Blacklist des faux positifs
+        if val not in ("NOM", "UDM", "QTE", "BOM", "OCR"):
+            champs["currency"] = val
+            confiances["currency"] = 0.90
+            return
     for devise in ["TND", "EUR", "USD", "MAD", "GBP"]:
-        if devise in t.upper():
+        if re.search(r'\b' + devise + r'\b', t.upper()):
             champs.setdefault("currency", devise)
             confiances.setdefault("currency", 0.65)
             break
-
 
 def _extraire_rm_cost_as_per(t, lignes, champs, confiances):
     """Extrait la base de calcul du coût"""
@@ -410,31 +430,20 @@ def _clean_item_code(raw: str) -> str:
 
 
 def _extraire_composants(t, lignes):
-    """
-    Tente d'extraire les lignes du tableau COMPOSANTS.
-    Stratégie :
-      1. Trouver la section "COMPOSANTS" / "BOM Items"
-      2. Parser chaque ligne : #  code  nom  description  qté  udm  ...  prix
-    Retourne une liste de dicts.
-    """
     composants = []
 
-    # Trouver les bornes de la section composants
     debut_idx = None
     for i, ligne in enumerate(lignes):
         if re.search(r'composants?|bom\s+items?|bill\s+of\s+mat', ligne, re.IGNORECASE):
             debut_idx = i
             break
-        # Détection via ligne d'en-tête du tableau monospace
         if re.search(r'^#\s+code\s+nom', ligne, re.IGNORECASE):
             debut_idx = i
             break
 
     if debut_idx is None:
-        # Fallback : pas de titre de section lisible par OCR → scanner tout le document
         section_lignes = lignes
     else:
-        # Trouver la fin de la section (prochaine section ou fin)
         fin_idx = len(lignes)
         section_keywords = [
             "param[eè]tres de fabrication",
@@ -448,44 +457,74 @@ def _extraire_composants(t, lignes):
             if any(re.search(p, lignes[i], re.IGNORECASE) for p in section_keywords):
                 fin_idx = i
                 break
-
         section_lignes = lignes[debut_idx:fin_idx]
 
-    # Regex pour une ligne de composant typique:
-    # "1  0010  Tube acier 40x40  Tube carré acier 40x40 mm  8  ML  8  ML  1  12.500"
+    # ── Approche 1 : scan sur texte reconstitué (PDF ERPNext fragmente les lignes) ──
+    texte_section = ' '.join(l.strip() for l in section_lignes if l.strip())
+
+    pat_scan = re.compile(
+        r'(\d+)\s+'
+        r'([A-Za-z0-9\-]{2,15})\s+'
+        r'([A-Za-zÀ-ÿ0-9\-/,\.]+(?:\s+[A-Za-zÀ-ÿ0-9\-/,\.]+)*?)\s+'
+        r'(?:[A-Za-z0-9]{1,3}\s+)?'
+        r'(?:[A-Za-zÀ-ÿ0-9\s\-/,\.]+?\s+)?'
+        r'(\d+(?:[,\.]\d+)?)\s+'
+        r'(Unité|Unit[eé]|Kg|m²|m³|m\b|L\b|g\b|[A-Z]{1,6})\s+'
+        r'(\d+(?:[,\.]\d+)?)\s+'
+        r'(Unité|Unit[eé]|Kg|m²|m³|m\b|L\b|g\b|[A-Z]{1,6})\s+'
+        r'(\d+(?:[,\.]\d+)?)',
+        re.UNICODE | re.IGNORECASE
+    )
+
+    for m in pat_scan.finditer(texte_section):
+        composants.append({
+            "idx":               int(m.group(1)),
+            "item_code":         _clean_item_code(m.group(2)),
+            "item_name":         m.group(3).strip(),
+            "description":       m.group(3).strip(),
+            "qty":               _parse_float(m.group(4)) or 1,
+            "uom":               _normaliser_uom(m.group(5)),
+            "qty_per_unit":      _parse_float(m.group(6)) or 1,
+            "stock_uom":         _normaliser_uom(m.group(7)),
+            "conversion_factor": _parse_float(m.group(8)) or 1,
+            "rate":              0,
+        })
+
+    if composants:
+        return composants
+
+    # ── Approche 2 : fallback ligne par ligne ────────────────────────────────────
     pat_ligne = re.compile(
-        r'^(\d+)\s+'                          # # ligne
-        r'([A-Za-z0-9\-]{3,15})\s+'           # code article (mixte OCR)
-        r'([A-Za-zÀ-ÿ0-9\s\-/,\.]+?)\s+'     # nom
-        r'([\d]+(?:[,\.]\d+)?)\s+'            # quantité
-        r'([A-Za-z0-9²³°/%]{1,8})\s+'         # UdM
-        r'([\d]+(?:[,\.]\d+)?)\s+'            # Qté/Unité
-        r'([A-Za-z0-9²³°/%]{1,8})\s+'         # UdM Stock
-        r'([\d]+(?:[,\.]\d+)?)\s+'            # Facteur Conv.
-        r'([\d\s,\.]+)$',                      # Prix
+        r'^(\d+)\s+'
+        r'([A-Za-z0-9\-]{3,15})\s+'
+        r'([A-Za-zÀ-ÿ0-9\s\-/,\.]+?)\s+'
+        r'([\d]+(?:[,\.]\d+)?)\s+'
+        r'([A-Za-z0-9²³°/%]{1,8})\s+'
+        r'([\d]+(?:[,\.]\d+)?)\s+'
+        r'([A-Za-z0-9²³°/%]{1,8})\s+'
+        r'([\d]+(?:[,\.]\d+)?)\s+'
+        r'([\d\s,\.]+)$',
         re.UNICODE
     )
 
-    # Pattern 7 colonnes : # code nom qty uom qty/unit prix  (sans stock_uom ni conv_factor)
     pat_7col = re.compile(
-        r'^(\d+)\s+'                           # #
-        r'([A-Za-z0-9\-]{3,15})\s+'           # code (mixte OCR)
-        r'([A-Za-zÀ-ÿ0-9\s\-/,\.]+?)\s+'    # nom
-        r'([\d]+(?:[,\.]\d+)?)\s+'            # qty
-        r'([A-Za-z0-9²³°/%]{1,8})\s+'         # uom
-        r'([\d]+(?:[,\.]\d+)?)\s+'            # qty_per_unit
-        r'([\d\s,\.]+)$',                      # prix
+        r'^(\d+)\s+'
+        r'([A-Za-z0-9\-]{3,15})\s+'
+        r'([A-Za-zÀ-ÿ0-9\s\-/,\.]+?)\s+'
+        r'([\d]+(?:[,\.]\d+)?)\s+'
+        r'([A-Za-z0-9²³°/%]{1,8})\s+'
+        r'([\d]+(?:[,\.]\d+)?)\s+'
+        r'([\d\s,\.]+)$',
         re.UNICODE
     )
 
-    # Pattern simplifié fallback (moins de colonnes)
     pat_simple = re.compile(
-        r'^(\d+)\s+'                           # #
-        r'([A-Za-z0-9\-]{3,15})\s+'           # code (mixte OCR)
-        r'(.+?)\s+'                            # nom (glouton minimal)
-        r'([\d]+(?:[,\.]\d+)?)\s+'            # qty
-        r'([A-Za-z0-9²³°/%]{1,8})\s+'         # uom
-        r'([\d\s,\.]+)$',                      # prix
+        r'^(\d+)\s+'
+        r'([A-Za-z0-9\-]{3,15})\s+'
+        r'(.+?)\s+'
+        r'([\d]+(?:[,\.]\d+)?)\s+'
+        r'([A-Za-z0-9²³°/%]{1,8})\s+'
+        r'([\d\s,\.]+)$',
         re.UNICODE
     )
 
@@ -542,7 +581,6 @@ def _extraire_composants(t, lignes):
             })
 
     return composants
-
 
 # ──────────────────────────────────────────────────────────────────────
 # UTILITAIRES
