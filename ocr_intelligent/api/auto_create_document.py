@@ -40,7 +40,7 @@ def auto_create_ocr_document(doc, method):
     frappe.enqueue(
         "ocr_intelligent.api.auto_create_document.traiter_ocr_en_arriere_plan",
         queue="short",
-        timeout=120,
+        timeout=25,
         ocr_doc_name=ocr_doc.name,
         chemin=chemin,
     )
@@ -48,13 +48,13 @@ def auto_create_ocr_document(doc, method):
 def traiter_ocr_en_arriere_plan(ocr_doc_name, chemin):
     try:
         frappe.db.set_value("OCR Document", ocr_doc_name, "status", "En cours")
+        _t_start = time.time()
 
         # ⚡ FAST PATH PDF TEXTE
         if chemin.endswith(".pdf") and _is_pdf_textuel(chemin):
             import fitz
             doc = fitz.open(chemin)
             texte = "\n".join([p.get_text() for p in doc])
-
             res_ocr = {
                 "texte": texte,
                 "score_confiance": 95,
@@ -65,6 +65,12 @@ def traiter_ocr_en_arriere_plan(ocr_doc_name, chemin):
             engine = get_engine()
             res_ocr = engine.extraire_texte(chemin)
 
+        # Vérification timeout manuel
+        if time.time() - _t_start > 25:
+            frappe.logger().warning(f"[OCR] Timeout 25s dépassé : {chemin}")
+            frappe.db.set_value("OCR Document", ocr_doc_name, "status", "Rejeté")
+            return
+
         frappe.db.set_value("OCR Document", ocr_doc_name,
             "confidence_score", res_ocr["score_confiance"])
         frappe.db.set_value("OCR Document", ocr_doc_name,
@@ -74,6 +80,7 @@ def traiter_ocr_en_arriere_plan(ocr_doc_name, chemin):
 
     except Exception:
         frappe.db.set_value("OCR Document", ocr_doc_name, "status", "Rejeté")
+        frappe.logger().error(f"[OCR] Erreur pipeline : {frappe.get_traceback()}")
 
 def _get_chemin_fichier(doc):
     """Retourne le chemin absolu d'un fichier uploadé."""

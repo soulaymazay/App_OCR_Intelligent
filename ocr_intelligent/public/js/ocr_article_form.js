@@ -92,10 +92,9 @@ frappe.ui.form.on("Item", {
         _ocr_article_ajouter_bouton(frm);
         _ocr_article_afficher_tableau_sites(frm);
     },
-
+    // APRÈS
     validate(frm) {
-        // ── Récupérer la liste UNIQUE depuis OCR_ARTICLE_DIALOG_FIELDS ──
-        const obligatoires = _get_champs_obligatoires();
+       const obligatoires = _get_champs_obligatoires_validation();
 
         // ── Effacer les anciens messages ─────────────────────────────
         obligatoires.forEach(function(def) {
@@ -151,6 +150,11 @@ frappe.ui.form.on("Item", {
 function _get_champs_obligatoires() {
     return OCR_ARTICLE_DIALOG_FIELDS.filter(
         def => def.frappe && def.sensitivity === 1
+    );
+}
+function _get_champs_obligatoires_validation() {
+    return _get_champs_obligatoires().filter(
+        def => def.frappe !== "custom_type_article"
     );
 }
 
@@ -310,7 +314,7 @@ const OCR_ARTICLE_DIALOG_FIELDS = [
     },
     {
         ocr: "custom_nature", frappe: "custom_nature",
-        label: "Nature", type: "Data", sensitivity: 1,
+        label: "Nature", type: "Data", sensitivity: 2,
         aliases: ["nature", "custom_nature"],
     },
     {
@@ -352,7 +356,7 @@ const OCR_ARTICLE_DIALOG_FIELDS = [
     },
     {
         ocr: "custom_mode_gestion", frappe: "custom_mode_gestion",
-        label: "Mode gestion", type: "Data", sensitivity: 1,
+        label: "Mode gestion", type: "Data", sensitivity: 2,
         aliases: ["mode_gestion", "custom_mode_gestion"],
     },
     {
@@ -435,7 +439,7 @@ const OCR_ARTICLE_DIALOG_FIELDS = [
     { section: "Gestion — Coûts" },
     {
         ocr: "custom_famille_cout", frappe: "custom_famille_cout",
-        label: "Famille coût", type: "Data", sensitivity: 1,
+        label: "Famille coût", type: "Data", sensitivity: 2,
         aliases: ["famille_cout", "custom_famille_cout"],
     },
     {
@@ -556,7 +560,7 @@ const OCR_ARTICLE_DIALOG_FIELDS = [
     { section: "Comptabilité — Données comptables" },
     {
         ocr: "custom_code_comptable", frappe: "custom_code_comptable",
-        label: "Code comptable", type: "Data", sensitivity: 1,
+        label: "Code comptable", type: "Data", sensitivity: 2,
         aliases: ["code_comptable", "custom_code_comptable"],
     },
     {
@@ -588,7 +592,7 @@ const OCR_ARTICLE_DIALOG_FIELDS = [
     { section: "Vente — Données vente" },
     {
         ocr: "custom_type_article", frappe: "custom_type_article",
-        label: "Type d'article", type: "Data", sensitivity: 1,
+        label: "Type d'article", type: "Data", sensitivity: 3,
         aliases: ["type_article", "custom_type_article"],
     },
     {
@@ -830,7 +834,7 @@ const OCR_ARTICLE_DIALOG_FIELDS = [
     { section: "Fournisseurs — Données fournisseur" },
     {
         ocr: "custom_fournisseur_principal", frappe: "custom_fournisseur_principal",
-        label: "Fournisseur principal", type: "Data", sensitivity: 1,
+        label: "Fournisseur principal", type: "Data", sensitivity: 2,
         aliases: ["fournisseur_principal", "custom_fournisseur_principal"],
     },
     {
@@ -1381,46 +1385,91 @@ function _ocr_article_dialog_validation(frm, champs, score, result) {
         secondary_action_label: __("Appliquer sans enregistrer"),
 
         secondary_action() {
+            _ocr_article_forcer_sync_dom(d);
             const manquants = _ocr_article_valider_obligatoires(d);
             if (manquants.length) {
                 _ocr_article_afficher_erreurs_dialog(d, manquants);
                 return;
             }
-            const vals = d.get_values() || {};
+            const vals = _ocr_article_lire_valeurs_dom(d);
             const sites_json = _lire_sites_depuis_dom(d, _sites_appro_data);
             if (sites_json) vals.custom_sites_appro = sites_json;
             d.hide();
-            _ocr_article_appliquer_au_formulaire(frm, vals, false, result);
+            _ocr_article_appliquer_au_formulaire(frm, vals, false, result, d);
         },
+        primary_action() {
+            // Ignore l'argument vals fourni automatiquement par Frappe : il peut
+            // être périmé si le champ vient juste d'être modifié (le DOM n'a pas
+            // encore eu le temps de propager la valeur vers le modèle interne
+            // avant la lecture de cet argument). On force la synchro nous-mêmes.
+            _ocr_article_forcer_sync_dom(d);
 
-        primary_action(vals) {
             const manquants = _ocr_article_valider_obligatoires(d);
             if (manquants.length) {
                 _ocr_article_afficher_erreurs_dialog(d, manquants);
                 return;
             }
-            vals = vals || {};
+
+            const vals = _ocr_article_lire_valeurs_dom(d);
             const sites_json = _lire_sites_depuis_dom(d, _sites_appro_data);
             if (sites_json) vals.custom_sites_appro = sites_json;
             d.hide();
-            _ocr_article_appliquer_au_formulaire(frm, vals, true, result);
+            _ocr_article_appliquer_au_formulaire(frm, vals, true, result, d);
         },
     });
 
     d.show();
+// Premier passage immédiat pour l'état initial du dialog
+      _ocr_article_marquer_champs_obligatoires(d);
 
-    // ── Après affichage : surligner les champs obligatoires vides ────
-    // ── Après affichage : marquer les champs obligatoires vides ────
-    [300, 800, 1500].forEach(delay => {
-        setTimeout(() => _ocr_article_marquer_champs_obligatoires(d), delay);
+// Écoute en temps réel : réévalue à chaque frappe/changement
+// (corrige le bug où le message ⛔ persistait après saisie manuelle)
+      _ocr_article_attacher_listeners_obligatoires(d);
+
+// Sécurité : un dernier passage après que Frappe ait fini de monter
+// certains widgets qui se rendent avec un léger délai (Link, Select)
+     setTimeout(() => _ocr_article_marquer_champs_obligatoires(d), 400);
+}
+function _ocr_article_lire_valeurs_dom(dialog) {
+    const vals = {};
+    for (const def of OCR_ARTICLE_DIALOG_FIELDS) {
+        if (!def.frappe) continue;
+        const fd = dialog.fields_dict[def.frappe];
+        if (!fd || !fd.$wrapper) continue;
+
+        if (def.type === "Check") {
+            vals[def.frappe] = dialog.get_value(def.frappe) ? 1 : 0;
+            continue;
+        }
+
+        const $input = fd.$wrapper
+            .find("input.form-control, select.form-control, textarea.form-control")
+            .first();
+
+        let v = $input.length ? $input.val() : dialog.get_value(def.frappe);
+        vals[def.frappe] = (v === undefined || v === null) ? "" : v;
+    }
+    return vals;
+}
+function _ocr_article_forcer_sync_dom(dialog) {
+    dialog.$wrapper
+        .find("input.form-control, select.form-control, textarea.form-control")
+        .each(function () {
+            $(this).trigger("blur");
+            $(this).trigger("change");
+        });
+
+    // Laisser aussi une chance aux champs Link (awesomplete) de valider
+    // leur sélection si le menu était encore ouvert
+    dialog.$wrapper.find(".awesomplete").each(function () {
+        $(this).find("input").trigger("blur");
     });
 }
-
 // ─────────────────────────────────────────────────────────────────────
 // SURLIGNAGE VISUEL des champs obligatoires vides dans le dialog
 // ─────────────────────────────────────────────────────────────────────
 function _ocr_article_marquer_champs_obligatoires(dialog) {
-    const obligatoires = _get_champs_obligatoires();
+    const obligatoires = _get_champs_obligatoires_validation();
     obligatoires.forEach(function(def) {
         const fd = dialog.fields_dict[def.frappe];
         if (!fd || !fd.$wrapper) return;
@@ -1460,7 +1509,107 @@ function _ocr_article_marquer_champs_obligatoires(dialog) {
             .show();
     });
 }
+// ─────────────────────────────────────────────────────────────────────
+// ÉCOUTE TEMPS RÉEL — réévalue un champ obligatoire dès qu'il change
+// ─────────────────────────────────────────────────────────────────────
+function _ocr_article_attacher_listeners_obligatoires(dialog) {
+    const obligatoires = _get_champs_obligatoires_validation();
 
+    obligatoires.forEach(function(def) {
+        const fd = dialog.fields_dict[def.frappe];
+        if (!fd || !fd.$wrapper) return;
+
+        // Voie "officielle" Frappe : se déclenche pour tous les fieldtypes
+        if (fd.df) {
+            const original_onchange = fd.df.onchange;
+            fd.df.onchange = function () {
+                if (original_onchange) original_onchange.apply(this, arguments);
+                _ocr_article_marquer_un_champ(dialog, def);
+            };
+        }
+
+        // Voie DOM directe en complément (Link/awesomplete, Select natif,
+        // ou tout widget où onchange ne se déclenche pas assez vite)
+        fd.$wrapper.on("input change keyup blur", "input, select, textarea", function () {
+            _ocr_article_marquer_un_champ(dialog, def);
+        });
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// MARQUAGE D'UN SEUL CHAMP — utilisé par les listeners temps réel
+// ─────────────────────────────────────────────────────────────────────
+function _ocr_article_marquer_un_champ(dialog, def) {
+    const fd = dialog.fields_dict[def.frappe];
+    if (!fd || !fd.$wrapper) return;
+
+    const est_vide = _ocr_article_champ_est_vide(dialog, fd, def);
+
+    let $help = fd.$wrapper.find("p.help-box");
+    if (!$help.length) {
+        $help = $('<p class="help-box small text-muted"></p>');
+        fd.$wrapper.find(".control-input-wrapper, .form-group").last().append($help);
+    }
+
+    const $input = fd.$wrapper
+        .find("input.form-control, select.form-control, textarea.form-control")
+        .first();
+
+    if (!est_vide) {
+        $input.css({ "border-color": "", "box-shadow": "" });
+        $help.html("").hide();
+        return;
+    }
+
+    $input.css({
+        "border-color": "#dc3545",
+        "box-shadow":   "0 0 0 0.15rem rgba(220,53,69,.15)",
+    });
+
+    $help
+        .html(`<span style="color:#dc3545;font-weight:500;">
+            ⛔ Obligatoire — saisie manuelle requise
+        </span>`)
+        .show();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// DÉTECTION "CHAMP VIDE" — source de vérité unique, DOM-first
+// ─────────────────────────────────────────────────────────────────────
+// On lit en priorité le DOM (input/select réel), toujours à jour à
+// l'instant de la frappe. dialog.get_value() peut être en retard d'un
+// cycle d'événement par rapport au DOM — c'était la cause du bug où
+// le message ⛔ réapparaissait après une saisie pourtant valide.
+function _ocr_article_champ_est_vide(dialog, fd, def) {
+    const $input = fd.$wrapper
+        .find("input.form-control, select.form-control, textarea.form-control")
+        .first();
+
+    // Cas Check (case à cocher) : se fier à la valeur logique 0/1
+    if (def.type === "Check") {
+        const v = dialog.get_value(def.frappe);
+        return !(v === 1 || v === true);
+    }
+
+    let val_dom = "";
+    if ($input.length) {
+        val_dom = $input.val();
+        val_dom = (val_dom === undefined || val_dom === null) ? "" : String(val_dom).trim();
+    }
+
+    if (val_dom !== "" && val_dom !== "0") {
+        return false; // le DOM contient une valeur saisie -> champ rempli
+    }
+
+    // Fallback : si le DOM semble vide, vérifier la valeur interne Frappe
+    // (utile juste après un set_value() programmatique, avant que le DOM
+    // n'ait fini de se synchroniser)
+    const val_frappe = dialog.get_value(def.frappe);
+    return (
+        val_frappe === null || val_frappe === undefined ||
+        String(val_frappe).trim() === "" || val_frappe === 0
+    );
+}
 function _ocr_article_surligner_champs_obligatoires(dialog) {
     _ocr_article_marquer_champs_obligatoires(dialog);
 }//────────────────────────────────────────────────────────────────────
@@ -1486,21 +1635,25 @@ function _ocr_article_afficher_erreurs_dialog(dialog, manquants) {
 // VALIDATION DES CHAMPS OBLIGATOIRES DU DIALOG
 // ─────────────────────────────────────────────────────────────────────
 function _ocr_article_valider_obligatoires(dialog) {
-    const obligatoires = _get_champs_obligatoires();
+    const obligatoires = _get_champs_obligatoires_validation();
     const manquants = [];
     for (const def of obligatoires) {
-        const val = dialog.get_value(def.frappe);
-        const vide = (
-            val === null      ||
-            val === undefined ||
-            String(val).trim() === "" ||
-            val === 0
-        );
+        const fd = dialog.fields_dict[def.frappe];
+        // Lecture DOM-first (toujours à jour), avec repli sur
+        // dialog.get_value() seulement si le champ n'a pas de DOM trouvable
+        const vide = fd ? _ocr_article_champ_est_vide(dialog, fd, def)
+                         : _ocr_article_valeur_vide(dialog.get_value(def.frappe));
         if (vide) manquants.push(def.label);
     }
     return manquants;
 }
 
+function _ocr_article_valeur_vide(val) {
+    return (
+        val === null || val === undefined ||
+        String(val).trim() === "" || val === 0
+    );
+}
 // ─────────────────────────────────────────────────────────────────────
 // LECTURE DES VALEURS DU TABLEAU SITES DEPUIS LE DOM DU DIALOG
 // ─────────────────────────────────────────────────────────────────────
@@ -1532,7 +1685,8 @@ function _lire_sites_depuis_dom(d, sites_original) {
 // ─────────────────────────────────────────────────────────────────────
 // APPLICATION AU FORMULAIRE
 // ─────────────────────────────────────────────────────────────────────
-function _ocr_article_appliquer_au_formulaire(frm, vals, enregistrer, result) {
+// ─── PAR ───
+function _ocr_article_appliquer_au_formulaire(frm, vals, enregistrer, result, dialog_ref) {
     vals = (vals && typeof vals === "object") ? vals : {};
     const champs_remplis = [];
     const champs_ignores = [];
@@ -1545,7 +1699,32 @@ function _ocr_article_appliquer_au_formulaire(frm, vals, enregistrer, result) {
 
     for (const def of OCR_ARTICLE_DIALOG_FIELDS) {
         const field = def.frappe;
-        const val   = vals[field];
+        let val = vals[field];
+
+        // ── Repli DOM ──────────────────────────────────────────────
+        // Si vals[field] semble vide, la valeur tapée peut ne pas être
+        // encore montée dans l'objet vals au moment du clic (course
+        // entre le mousedown du bouton "Enregistrer" et le blur de
+        // l'input précédent). On relit l'input réel du dialog avant de
+        // considérer le champ comme vraiment vide.
+        // ── Repli DOM ──────────────────────────────────────────────
+           if (_ocr_article_valeur_vide(val) && dialog_ref && dialog_ref.fields_dict && dialog_ref.fields_dict[field]) {
+    try {
+        const fd = dialog_ref.fields_dict[field];
+        // Vérifier que le wrapper existe encore ET que c'est bien un objet jQuery valide
+        if (fd && fd.$wrapper && fd.$wrapper.length && typeof fd.$wrapper.find === "function") {
+            const $inp = fd.$wrapper
+                .find("input.form-control, select.form-control, textarea.form-control")
+                .first();
+            if ($inp.length) {
+                const dom_val = $inp.val();
+                if (!_ocr_article_valeur_vide(dom_val)) val = dom_val;
+            }
+        }
+    } catch (e) {
+        console.warn("[OCR Article] Repli DOM impossible pour le champ", field, e);
+    }
+}
 
         if (val === null || val === undefined || String(val).trim() === "") continue;
 

@@ -627,7 +627,7 @@ def _executer_pipeline_article_job(chemin_tmp, nom_fichier, ext,
                 })
                 return
 
-        # ── Étape 7 : Sauvegarde OCR Document ────────────────────────
+         # ── Étape 7 : Sauvegarde OCR Document ────────────────────────
         statut       = "Validé" if len(champs_remplis) >= 3 else "Validation requise"
         ocr_doc_name = None
         existants    = frappe.get_list(
@@ -657,6 +657,36 @@ def _executer_pipeline_article_job(chemin_tmp, nom_fichier, ext,
             })
             doc.insert(ignore_permissions=True)
             ocr_doc_name = doc.name
+
+        # ── Étape 7b : Attacher le fichier original ───────────────────
+        try:
+            deja_joint = frappe.db.exists("File", {
+                "attached_to_doctype": "OCR Document",
+                "attached_to_name":    ocr_doc_name,
+                "file_name":           nom_fichier,
+            })
+            if not deja_joint:
+                with open(chemin_tmp, "rb") as _f:
+                    contenu_fichier = _f.read()
+
+                file_doc = frappe.get_doc({
+                    "doctype":             "File",
+                    "file_name":           nom_fichier,
+                    "attached_to_doctype": "OCR Document",
+                    "attached_to_name":    ocr_doc_name,
+                    "attached_to_field":   "file_url",
+                    "is_private":          1,
+                    "content":             contenu_fichier,
+                })
+                file_doc.insert(ignore_permissions=True)
+
+                frappe.db.set_value(
+                    "OCR Document", ocr_doc_name,
+                    "file_url", file_doc.file_url
+                )
+        except Exception as _e:
+            frappe.log_error(frappe.get_traceback(),
+                             "OCR Article — Échec attachement fichier")
 
         frappe.db.commit()
 

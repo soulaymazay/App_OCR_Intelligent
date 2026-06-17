@@ -11,7 +11,7 @@ app_license = "MIT"
 
 app_include_js = [
     "/assets/ocr_intelligent/js/ocr_form.js?v=6",
-    "/assets/ocr_intelligent/js/ocr_article_form.js?v=4",
+    "/assets/ocr_intelligent/js/ocr_article_form.js?v=5",
     "/assets/ocr_intelligent/js/ocr_bom_form.js?v=1"
 ]
 
@@ -26,11 +26,14 @@ doc_events = {
         "after_insert": "ocr_intelligent.api.auto_create_document.auto_create_ocr_document"
     },
     "Payment Entry": {
-        "validate": "ocr_intelligent.api.validators.validate_cheque_date",
+        "validate":     "ocr_intelligent.api.validators.validate_cheque_date",
         "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr"
     },
+    # ── Purchase Invoice : fusionner after_insert + on_submit + on_cancel ──
     "Purchase Invoice": {
-        "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr"
+        "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr",
+        "on_submit":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_depuis_purchase_invoice",
+        "on_cancel":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_depuis_purchase_invoice",
     },
     "Sales Invoice": {
         "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr"
@@ -49,5 +52,6 @@ doc_events = {
     },
     "Delivery Note": {
         "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr"
-    }
+    },
 }
+
