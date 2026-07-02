@@ -389,6 +389,7 @@ def _extraire_montants(texte: str) -> list:
 
 
 def _extraire_references(texte: str) -> list:
+    """Extrait les références documentaires (numéros de facture, BL, commande…) via _PAT_REF. Déduplique les résultats."""
     refs = []
     for m in _PAT_REF.finditer(texte):
         refs.append(m.group(0))
@@ -396,6 +397,12 @@ def _extraire_references(texte: str) -> list:
 
 
 def _societe_valide(valeur: str) -> bool:
+    """
+    Valide qu'une chaîne est un nom de société acceptable.
+
+    Rejette : les chaînes trop courtes, les stopwords (SARL, STE…),
+    les valeurs purement numériques et les bouts de ligne de tableau.
+    """
     v = (valeur or "").strip()
     if len(v) < 3:
         return False
@@ -412,6 +419,13 @@ def _societe_valide(valeur: str) -> bool:
 
 
 def _extraire_societes(texte: str) -> list:
+    """
+    Extrait les noms de sociétés du texte OCR.
+
+    Stratégie : regex _PAT_SOCIETE puis fallback sur les lignes en majuscules
+    des 30 premières lignes. Nettoie les préfixes parasites (lettre isolée).
+    Retourne une liste dédupliquée.
+    """
     societes = []
     for m in _PAT_SOCIETE.finditer(texte):
         v = (m.group(1) or m.group(2) or "").strip()

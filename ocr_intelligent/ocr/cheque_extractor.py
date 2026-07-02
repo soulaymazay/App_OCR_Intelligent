@@ -119,6 +119,11 @@ _PATTERNS_CHAMP_CHEQUE = {
 
 
 def _date_provient_expiration(texte: str, date_value: str) -> bool:
+    """
+    Détermine si une date extraite provient d'un contexte d'expiration/validité
+    plutôt que de la date réelle du chèque.
+    Retourne True si TOUTES les lignes contenant cette date mentionnent 'expir' ou 'validité'.
+    """
     if not texte or not date_value:
         return False
     lignes_avec_date = [
@@ -136,6 +141,11 @@ def _date_provient_expiration(texte: str, date_value: str) -> bool:
 
 
 def _trouver_zone_cheque(img):
+    """
+    Détecte par contours la zone principale du chèque dans l'image.
+    Retourne le bounding-rect (x, y, w, h) de la zone la plus grande couvrant
+    au moins 20% de la surface totale, ou None si non trouvée.
+    """
     import cv2
     import numpy as np
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -151,6 +161,11 @@ def _trouver_zone_cheque(img):
 
 
 def _detecter_signature(chemin_img: str, texte: str) -> bool:
+    """
+    Détecte la présence d'une signature sur l'image d'un chèque via analyse de contours.
+    Accepte images raster et PDF (converti en 200 DPI).
+    Retourne True si des contours compatibles avec une signature sont détectés.
+    """
     try:
         import cv2
         import numpy as np
@@ -258,6 +273,16 @@ def _pretraiter_zone_beneficiaire_cursif(crop) -> list:
 
 
 def _extraire_beneficiaire_manuscrit(chemin_img: str) -> str | None:
+    """
+    Extrait le bénéficiaire manuscrit cursif d'un chèque.
+
+    Stratégie :
+      1. Zones ultra-serrées (20-40% hauteur) → Tesseract PSM 8/13 + whitelist
+      2. Masque encre bleue (triple plage HSV) + binarisations multiples
+      3. Fuzzy-match sur le dictionnaire des parties connues (frappe_parties)
+      4. Sélection par score cohérence (mot le plus long > fragmentation)
+    Retourne None si aucun candidat valide trouvé.
+    """
     try:
         import cv2
         import numpy as np
@@ -599,6 +624,11 @@ def _extraire_beneficiaire_manuscrit(chemin_img: str) -> str | None:
 
 
 def _extraire_dates_image_cheque(chemin_img: str) -> list:
+    """
+    Extrait les dates de l'image d'un chèque en analysant 4 zones (du plus probable
+    au moins probable) avec early-exit dès qu'une date est trouvée.
+    Retourne une liste d'objets datetime dédupliqués.
+    """
     try:
         import cv2
         import numpy as np
@@ -812,6 +842,15 @@ def _extraire_beneficiaire_claude_vision(chemin_img: str) -> str | None:
 
 
 def _extraire_champs_cheque(texte: str) -> tuple[dict, list, float]:
+    """
+    Extraction principale de tous les champs d'un chèque depuis le texte OCR.
+
+    Champs extraits : numero_cheque, date_cheque, montant_chiffres, montant_lettres,
+    banque, rib, beneficiaire, titulaire_compte, memo.
+
+    Retourne (champs: dict, incertains: list[str], confiance: float 0–1).
+    Les champs non trouvés sont mis à "" (chaîne vide).
+    """
     champs = {}
     incertains = []
     scores_confiance = []

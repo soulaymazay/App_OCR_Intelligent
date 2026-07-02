@@ -44,8 +44,8 @@ def validate_cheque_date(doc, method=None):
 
     if ref_date < limite:
         frappe.throw(
-            f"Ce chèque est périmé : date d'émission <b>{ref_date.strftime('%d/%m/%Y')}</b>.<br>"
+            f"Ce chèque est expiré : date d'émission <b>{ref_date.strftime('%d/%m/%Y')}</b>.<br>"
             "Un chèque est valable <b>6 mois</b> à partir de sa date d'émission.<br>"
             "Remplacez ce chèque ou contactez l'émetteur.",
-            title="Chèque périmé — Enregistrement refusé"
+            title="Chèque expiré — Enregistrement refusé"
         )

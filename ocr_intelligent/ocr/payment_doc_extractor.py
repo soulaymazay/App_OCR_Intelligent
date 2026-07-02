@@ -50,10 +50,15 @@ from ocr_intelligent.ocr.traite_extractor import (
 
 
 def _libelle_type_document(doc_type: str) -> str:
+    """Retourne le libellé lisible d'un type de document (clé depuis _LABELS_TYPE)."""
     return _LABELS_TYPE.get(doc_type, (doc_type or "inconnu")).strip()
 
 
 def _construire_message_type_invalide(type_attendu: str, type_detecte: str) -> str:
+    """
+    Construit le message d'erreur utilisateur quand le type de document soumis
+    ne correspond pas au mode de paiement sélectionné.
+    """
     label_attendu = _libelle_type_document(type_attendu)
     label_detecte = _libelle_type_document(type_detecte)
     return (
@@ -103,6 +108,11 @@ _MOTS_EXCLUSIFS_CHEQUE = re.compile(
 
 
 def _cheque_est_perime(*dates_candidates: str) -> bool:
+    """
+    Détermine si un chèque est périmé en vérifiant si l'une des dates
+    candidates dépasse le seuil configuré (PEREMPTION_CHEQUE_MOIS × 30.44 jours).
+    Retourne True si au moins une date est périmée.
+    """
     seuil_jours = int(PEREMPTION_CHEQUE_MOIS * 30.44)
     for date_value in dates_candidates:
         if not date_value:
@@ -463,6 +473,14 @@ def _traiter_cheque(
     errors: list,
     t_debut: float,
 ) -> dict:
+    """
+    Sous-orchestrateur du pipeline chèque :
+      1. Extraction des champs (numéro, date, montant, bénéficiaire, RIB)
+      2. Dates supplémentaires depuis l'image (si date non fiable en OCR)
+      3. Post-traitement (bénéficiaire manuscrit, Vision API, nettoyages)
+      4. Blocage dur si date périmée ou signature absente
+    Retourne le dict résultat standard (valid, form_fields, champs_remplis…).
+    """
     from datetime import datetime
 
     _ocr_log("=== _traiter_cheque ===", "info")
@@ -594,6 +612,12 @@ def _traiter_traite(
     errors: list,
     t_debut: float,
 ) -> dict:
+    """
+    Sous-orchestrateur du pipeline traite/lettre de change :
+      1. Extraction des champs (numéro, dates, montant, tireur, tiré, domiciliation)
+      2. Post-traitement (normalisation, fallbacks RIB/tireur)
+    Retourne le dict résultat standard (valid toujours True pour les traites).
+    """
     _ocr_log("=== _traiter_traite ===", "info")
     t1 = time.monotonic()
 
@@ -634,6 +658,10 @@ def _traiter_traite(
 
 
 def _resultat_echec(message: str, errors: list, doc_type: str = "inconnu") -> dict:
+    """
+    Construit un dict résultat d'échec standardisé avec valid=False.
+    Ajoute le message à la liste errors et remet à zéro tous les champs.
+    """
     errors.append(message)
     return {
         "valid":                  False,

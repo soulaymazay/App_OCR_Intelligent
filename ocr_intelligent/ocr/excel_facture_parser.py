@@ -16,6 +16,19 @@ import re
 # ──────────────────────────────────────────────────────────────────────
 
 def parser_facture_excel(chemin_xlsx: str) -> dict:
+    """
+    Parse un fichier Excel de facture et retourne les champs structurés.
+
+    Stratégie double :
+      1. Extraction structurée cellule par cellule (_extraire_champs_excel_direct)
+         → analyse le label dans la cellule à gauche pour associer valeur/champ
+      2. Fallback textuel aplati (_extraire_champs_facture) via regex
+    Les résultats structurés sont prioritaires sur le fallback.
+
+    Retourne :
+      { success, type_document, champs_remplis, score_confiance, methode_ocr,
+        texte_extrait, message } ou { success: False, erreur: str }
+    """
     try:
         import pandas as pd
     except ImportError:
@@ -87,6 +100,7 @@ _CONTEXTES_EXCLUS_CELLULE = [
 ]
 
 def _est_contexte_exclu(label: str) -> bool:
+    """Retourne True si le label correspond à un contexte à exclure (MF, RIB, TVA:, etc.)."""
     l = label.lower().strip()
     return any(exc in l for exc in _CONTEXTES_EXCLUS_CELLULE)
 
@@ -179,6 +193,11 @@ def _parse_montant_cellule(val: str):
 
 
 def _role_montant_label(label: str) -> str:
+    """
+    Déduit le rôle d'un montant (ht, tva, ttc, remise, fodec, timbre)
+    depuis le label de la cellule voisine.
+    Retourne "" si le label ne correspond à aucun rôle connu.
+    """
     l = label.lower().strip().rstrip(':').strip()
     if any(k in l for k in ["total ttc", "net à payer", "net a payer", "montant ttc"]):
         return "montant_ttc"
@@ -224,6 +243,11 @@ def _role_ref_label(label: str) -> str:
 # ──────────────────────────────────────────────────────────────────────
 
 def _dataframe_vers_texte(df) -> str:
+    """
+    Convertit un DataFrame pandas en texte aplati (fallback textuel).
+    Formate chaque cellule via _formater_valeur_cellule et joint par espace.
+    Les lignes vides (moins de 2 tokens) sont ignorées.
+    """
     lignes = []
     for _, row in df.iterrows():
         parties = []
@@ -262,6 +286,11 @@ def _formater_valeur_cellule(val_str: str) -> str:
 # ──────────────────────────────────────────────────────────────────────
 
 def _extraire_champs_facture(texte: str) -> dict:
+    """
+    Fallback textuel : extrait les champs de facture depuis un texte aplati
+    en utilisant des patterns regex (numéro, date, montants, fournisseur).
+    Moins précis que _extraire_champs_excel_direct mais couvre les cas mal structurés.
+    """
     champs = {}
     champs.update(_extraire_dates(texte))
     champs.update(_extraire_montants(texte))
@@ -271,6 +300,10 @@ def _extraire_champs_facture(texte: str) -> dict:
 
 
 def _extraire_dates(texte: str) -> dict:
+    """
+    Extrait toutes les dates du texte et les classe par rôle (date, date_echeance).
+    Déduplique par rôle : une seule date par rôle, la première rencontrée.
+    """
     patterns = [
         r'\b(\d{2}[/\-.]\d{2}[/\-.]\d{4})\b',
         r'\b(\d{4}[/\-.]\d{2}[/\-.]\d{2})\b',
@@ -292,6 +325,11 @@ def _extraire_dates(texte: str) -> dict:
 
 
 def _extraire_montants(texte: str) -> dict:
+    """
+    Extrait tous les montants du texte Excel aplati et les classe par rôle
+    (montant_ht, montant_tva, montant_ttc, remise, fodec, timbre).
+    Exclut les numéros matricule, RIB, TVA:, téléphone.
+    """
     PATTERNS_DECIMAL = [
         r'(\d{1,3}(?:[ \u00a0]\d{3})*[,]\d{2,3})',
         r'(\d{1,3}(?:[.]\d{3})+[,]\d{2,3})',
@@ -383,6 +421,10 @@ def _role_montant_ligne_pos(texte: str, pos: int, ligne: str) -> str:
 
 
 def _extraire_references(texte: str) -> dict:
+    """
+    Extrait les références (numéro facture, bon de livraison, bon de commande)
+    et les classe par rôle depuis le contexte gauche.
+    """
     patterns = [
         r'\b([A-Z]{1,4}[-/]\d{4}[-/]\d+)\b',
         r'\b(\d{4}[-/]\d{3,6})\b',
@@ -405,6 +447,10 @@ def _extraire_references(texte: str) -> dict:
 
 
 def _extraire_noms(texte: str) -> dict:
+    """
+    Extrait les noms de sociétés (fournisseur, client) depuis le texte aplati.
+    Cherche les formes juridiques (SARL, SA, EURL…) et les labels explicites.
+    """
     patterns = [
         r'(?:fournisseur|supplier|vendeur)\s*[:\s]+'
         r'([A-ZÀ-Ÿ][A-Za-zÀ-ÿ0-9\s&]{2,38}?)(?=\s*(?:\n|$|MF|RIB|Tél|Tel|Date|N°))',
@@ -427,6 +473,7 @@ def _extraire_noms(texte: str) -> dict:
 
 
 def _role_nom(ctx: str) -> str:
+    """Déduit le rôle d'un nom (fournisseur/client/societe) depuis le contexte."""
     if any(k in ctx for k in ["fournisseur", "vendeur", "supplier"]):
         return "fournisseur"
     if any(k in ctx for k in ["client", "destinataire", "acheteur"]):
@@ -439,6 +486,10 @@ def _role_nom(ctx: str) -> str:
 # ──────────────────────────────────────────────────────────────────────
 
 def _mapper_champs_frappe(champs: dict) -> dict:
+    """
+    Mappe les champs extraits vers les fieldnames ERPNext (Purchase Invoice).
+    Ajoute posting_date = bill_date si non renseigné.
+    """
     mapping = {
         "date":           "bill_date",
         "date_echeance":  "due_date",
@@ -467,6 +518,7 @@ def _mapper_champs_frappe(champs: dict) -> dict:
 # ──────────────────────────────────────────────────────────────────────
 
 def _contexte_ligne(texte: str, pos: int) -> str:
+    """Retourne le texte de la ligne complète contenant la position pos (en minuscules)."""
     debut = texte.rfind('\n', 0, pos)
     debut = debut + 1 if debut >= 0 else 0
     fin = texte.find('\n', pos)
@@ -475,12 +527,18 @@ def _contexte_ligne(texte: str, pos: int) -> str:
 
 
 def _contexte_fenetre(texte: str, pos: int, fenetre: int = 60) -> str:
+    """Retourne une fenêtre de texte centrée sur pos (±60 chars, en minuscules)."""
     debut = max(0, pos - fenetre)
     fin = min(len(texte), pos + fenetre)
     return texte[debut:fin].lower()
 
 
 def _nettoyer_montant(val: str) -> float:
+    """
+    Convertit une chaîne montant Excel en float.
+    Gère les formats FR (1 234,56), EN (1,234.56) et mixtes.
+    Retourne 0.0 si la conversion échoue.
+    """
     try:
         v = val.strip().replace('\u00a0', ' ')
         if re.search(r'\d,\d{3}\.', v):
@@ -493,6 +551,10 @@ def _nettoyer_montant(val: str) -> float:
 
 
 def _nettoyer_nom(val: str) -> str:
+    """
+    Nettoie un nom de société extrait : supprime les labels de fin de ligne
+    (Date, Adresse, Tel, MF, RIB, N°…) et trim la chaîne.
+    """
     val = val.split("\n")[0].split("\r")[0]
     for p in [r'\s*Date\s*$', r'\s*Adresse\s*$', r'\s*Tel\s*$',
               r'\s*Tél\s*$', r'\s*MF\s*$', r'\s*RIB\s*$',

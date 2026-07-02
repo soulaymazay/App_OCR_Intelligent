@@ -25,6 +25,12 @@ class Validateur:
         self.avertissements = []
 
     def valider(self):
+        """
+        Lance toutes les vérifications (champs obligatoires, formats, cohérence)
+        et retourne un dict :
+          { statut, erreurs, avertissements, champs_valides, nombre_erreurs }
+        Statuts possibles : "valide", "avertissement", "validation_requise".
+        """
         self.erreurs = []
         self.avertissements = []
 
@@ -48,6 +54,10 @@ class Validateur:
         }
 
     def _verifier_champs_obligatoires(self):
+        """
+        Vérifie que tous les champs obligatoires du type de document sont présents.
+        Ajoute une erreur CHAMP_MANQUANT pour chaque champ absent.
+        """
         requis = self.CHAMPS_OBLIGATOIRES.get(self.type_doc, [])
         for champ in requis:
             if champ not in self.champs or not self.champs[champ]:

@@ -1,4 +1,13 @@
 # -*- coding: utf-8 -*-
+"""
+ocr_engine.py — Groupe Bayoudh Metal
+Moteur OCR unifié avec stratégie adaptée au type de fichier.
+
+Stratégie image :
+  1. Tesseract rapide (PSM 6, OEM 1) — si > 20 mots → résultat immédiat
+  2. Si image floue → prétraitement léger + retry Tesseract
+  3. PaddleOCR (lazy) — seulement si Tesseract insuffisant
+"""
 import cv2
 import numpy as np
 import pytesseract
@@ -16,6 +25,10 @@ _paddle = None
 # PADDLE LAZY LOAD
 # ─────────────────────────────
 def get_paddle():
+    """
+    Charge PaddleOCR en mode paresseux (singleton global).
+    Retourne None si PaddleOCR n'est pas installé.
+    """
     global _paddle
 
     if _paddle is not None:
@@ -36,6 +49,10 @@ def get_paddle():
 # DETECTION FLOU (FAST)
 # ─────────────────────────────
 def _est_flou(img):
+    """
+    Détecte si une image est floue via la variance du Laplacien.
+    Seuil : variance < 70 → image considérée floue.
+    """
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return cv2.Laplacian(gray, cv2.CV_64F).var() < 70
 
@@ -44,6 +61,10 @@ def _est_flou(img):
 # PREPROCESSING LIGHT
 # ─────────────────────────────
 def _preprocess(img, flou=False):
+    """
+    Prétraitement léger : conversion en niveaux de gris.
+    Si flou=True, applique un sharpen gaussien (1.5x – 0.5x).
+    """
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     if flou:
@@ -58,6 +79,11 @@ def _preprocess(img, flou=False):
 # TESSERACT FAST
 # ─────────────────────────────
 def _tesseract_fast(img):
+    """
+    Lance Tesseract en mode rapide : OEM 1 (LSTM uniquement), PSM 6.
+    OEM 1 est ~30% plus rapide que OEM 3 (Legacy+LSTM).
+    Langues : fra+eng.
+    """
     return pytesseract.image_to_string(
         img,
         lang="fra+eng",
@@ -66,6 +92,12 @@ def _tesseract_fast(img):
 
 
 class OCREngine:
+    """
+    Moteur OCR central du projet.
+    Expose une méthode unique extraire_texte(path) qui délègue au bon
+    sous-moteur selon l'extension : .pdf, .xlsx, .svg ou image raster.
+    Retourne toujours {"texte": str, "score_confiance": int, "moteur": str}.
+    """
 
     def extraire_texte(self, path):
         if path.endswith(".pdf"):
@@ -81,6 +113,11 @@ class OCREngine:
     # IMAGE (OPTIMISÉ)
     # ─────────────────────────────
     def _image(self, path):
+        """
+        OCR sur fichier image (JPEG, PNG, BMP, TIFF…).
+        Fast path Tesseract → PaddleOCR si insuffisant.
+        Score confiance : tesseract_fast=75, paddle=85, tesseract=65.
+        """
         img = cv2.imread(path)
 
         if img is None:
@@ -140,6 +177,10 @@ class OCREngine:
     # PDF (ULTRA OPTIMISÉ)
     # ─────────────────────────────
     def _pdf(self, path):
+        """
+        OCR sur fichier PDF : convertit la première page en image (DPI 200)
+        via pdf2image puis lance _image. Score confiance : 80.
+        """
         from pdf2image import convert_from_path
 
         # ⚡ 1 seule page + DPI réduit
@@ -159,6 +200,10 @@ class OCREngine:
         }
 
     def _image_array(self, img):
+        """
+        OCR sur un tableau numpy BGR (image déjà en mémoire).
+        Redéimensionne, prétraite et lance Tesseract rapide.
+        """
         img = self._resize(img)
         gray = _preprocess(img)
         texte = _tesseract_fast(gray)
@@ -238,6 +283,12 @@ class OCREngine:
     # RESIZE OPTIMISÉ
     # ─────────────────────────────
     def _resize(self, img):
+        """
+        Redémensionner l'image pour optimiser l'OCR :
+        - > 2400 px de large  → downscale (INTER_AREA, préserve la netteteté)
+        - < 800 px de large   → upscale à 1200 px (INTER_CUBIC, qualité)
+        - sinon               → image conservée telle quelle.
+        """
         h, w = img.shape[:2]
 
         if w > 2400:  # downscale huge scans — INTER_AREA preserves sharpness
@@ -252,6 +303,10 @@ class OCREngine:
 
     # ─────────────────────────────
     def _extract_paddle(self, result):
+        """
+        Convertit le résultat brut PaddleOCR (liste de pages/lignes)
+        en texte plat joint par \\n.
+        """
         textes = []
 
         for page in (result or []):
@@ -261,6 +316,7 @@ class OCREngine:
         return "\n".join(textes)
 
     def _vide(self):
+        """Retourne un résultat OCR vide (texte vide, confiance 0)."""
         return {"texte": "", "score_confiance": 0}
 
 
@@ -270,6 +326,7 @@ class OCREngine:
 _ENGINE = None
 
 def get_engine():
+    """Retourne l'instance singleton d'OCREngine (création paresseuse)."""
     global _ENGINE
 
     if _ENGINE is None:

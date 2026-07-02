@@ -11,6 +11,10 @@ import re
 # ─────────────────────────────────────────────────────────────────────
 
 def clean_and_structure_text(raw_text):
+    """
+    Nettoie le texte brut OCR : supprime les espaces multiples et les sauts de ligne
+    superflus. Retourne une chaîne propre, ou "" si l'entrée est vide.
+    """
     if not raw_text:
         return ""
     text = str(raw_text)
@@ -23,8 +27,17 @@ def clean_and_structure_text(raw_text):
 # ─────────────────────────────────────────────────────────────────────
 
 class ExtracteurIntelligent:
+    """
+    Extracteur multi-fonctions pour texte OCR brut.
+    Propose la détection de type de document, l'extraction de dates
+    et de montants depuis n'importe quel texte issu d'un OCR.
+    """
 
     def __init__(self, texte_brut):
+        """
+        Initialise l'extracteur avec le texte OCR brut.
+        Stocke une version minuscule pour les recherches insensibles à la casse.
+        """
         self.texte       = texte_brut or ""
         self.texte_lower = self.texte.lower()
 
@@ -33,6 +46,11 @@ class ExtracteurIntelligent:
     # ─────────────────────────────────────────────────────────────
 
     def detecter_type_document(self):
+        """
+        Détecte le type de document par scoring de mots-clés (avec variantes OCR).
+        Types supportés : facture, bon_livraison, cheque, bon_commande.
+        Retourne le type le plus probable ou "inconnu" si score = 0.
+        """
         scores = {"facture": 0, "bon_livraison": 0, "cheque": 0, "bon_commande": 0}
 
         mots = {
@@ -74,6 +92,11 @@ class ExtracteurIntelligent:
     # ─────────────────────────────────────────────────────────────
 
     def extraire_dates(self):
+        """
+        Extrait toutes les dates du texte OCR (formats JJ/MM/AAAA, AAAA-MM-JJ,
+        et variantes tronquées).
+        Retourne un dict {rôle: valeur} en dédupliquant par rôle (date, date_echeance…).
+        """
         patterns = [
             r'\b(\d{2}[/\-.]\d{2}[/\-.]\d{4})\b',         # JJ/MM/AAAA ou JJ.MM.AAAA
             r'\b(\d{4}[/\-.]\d{2}[/\-.]\d{2})\b',         # AAAA-MM-JJ
@@ -106,6 +129,11 @@ class ExtracteurIntelligent:
     # ─────────────────────────────────────────────────────────────
 
     def extraire_montants(self):
+        """
+        Extrait tous les montants monétaires du texte OCR.
+        Filtre les contextes non-montants (RIB, IBAN, tél, code postal…).
+        Retourne une liste de dicts {valeur, rôle, confiance}.
+        """
         patterns = [
             r'(\d{1,3}(?:[\s.]\d{3})*(?:[.,]\d{2}))\s*(?:TND|DT|EUR|€|\$|دينار)?',
             # Capturer aussi les montants entiers (ex: "4 250" sans décimales).

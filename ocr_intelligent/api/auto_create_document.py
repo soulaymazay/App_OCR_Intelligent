@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 import frappe
 import os
 import json
@@ -6,7 +6,7 @@ import time
 import hashlib
 
 EXTENSIONS_ACCEPTEES = frozenset([".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp"])
-
+ #Détection PDF texte vs scanné
 def _is_pdf_textuel(path):
     try:
         import fitz
@@ -15,7 +15,8 @@ def _is_pdf_textuel(path):
         return len(text) > 50
     except:
         return False
-
+        
+    #Hook déclencheur
 def auto_create_ocr_document(doc, method):
     ext = os.path.splitext(doc.file_name or "")[1].lower()
     if ext not in EXTENSIONS_ACCEPTEES:
@@ -23,7 +24,7 @@ def auto_create_ocr_document(doc, method):
 
     if frappe.db.exists("OCR Document", {"file_url": doc.file_url}):
         return
-
+    # Résolution de chemin
     chemin = _get_chemin_fichier(doc)
     if not chemin:
         return
@@ -44,13 +45,13 @@ def auto_create_ocr_document(doc, method):
         ocr_doc_name=ocr_doc.name,
         chemin=chemin,
     )
-
+# Le worker
 def traiter_ocr_en_arriere_plan(ocr_doc_name, chemin):
     try:
         frappe.db.set_value("OCR Document", ocr_doc_name, "status", "En cours")
         _t_start = time.time()
 
-        # ⚡ FAST PATH PDF TEXTE
+        
         if chemin.endswith(".pdf") and _is_pdf_textuel(chemin):
             import fitz
             doc = fitz.open(chemin)
@@ -110,10 +111,10 @@ def enregistrer_document_module_dans_ocr(doc, method):
 
 @frappe.whitelist()
 def attacher_copie_originale(doctype, docname, file_url):
-    """
+    """API
     Attache un fichier existant à un document ERPNext.
     Fonction générique utilisée par tous les modules OCR (Article, BOM, Payment Entry, etc.)
-    """
+    """ 
     try:
         frappe.logger().info(f"[OCR] attacher_copie_originale: {doctype}/{docname} ← {file_url}")
         
@@ -132,7 +133,7 @@ def attacher_copie_originale(doctype, docname, file_url):
             limit=1
         )
 
-        # ✅ CORRECTION : si pas trouvé par file_url exact, chercher par file_name
+        
         if not file_docs:
             nom_fichier = os.path.basename(file_url)
             frappe.logger().warning(f"[OCR] file_url non trouvé, recherche par file_name: {nom_fichier}")
@@ -168,3 +169,4 @@ def attacher_copie_originale(doctype, docname, file_url):
     except Exception as e:
         frappe.logger().error(f"[OCR] Erreur lors de l'attachement du fichier: {str(e)}")
         return {"success": False, "erreur": str(e)}
+    

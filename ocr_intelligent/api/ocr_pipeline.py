@@ -176,7 +176,7 @@ def _extraire_textes_date_cheque_image_global(chemin_img):
 # ──────────────────────────────────────────────────────────────────────
 # PIPELINE PRINCIPAL
 # ──────────────────────────────────────────────────────────────────────
-
+#Point d'entrée — reçoit le fichier et lance le job async
 @frappe.whitelist()
 def pipeline_complet(file_url="", source_doctype="", payment_method=""):
     import uuid
@@ -244,6 +244,22 @@ def pipeline_complet(file_url="", source_doctype="", payment_method=""):
         "ocr_pipeline_status_{}".format(job_token), "en_cours", expires_in_sec=3600
     )
 
+    # ── Capture de l'utilisateur AVANT l'enqueue ──────────────────────
+    # frappe.session.user n'existe plus dans le worker async (retourne "Guest").
+    # On capture donc l'identité ici, dans le contexte HTTP de la requête.
+    utilisateur_actuel = frappe.session.user
+    if not utilisateur_actuel or utilisateur_actuel == "Guest":
+        # Fallback : chercher le premier utilisateur actif non-système
+        utilisateur_actuel = (
+            frappe.db.get_value(
+                "User",
+                {"enabled": 1, "name": ["not in", ["Guest", "Administrator"]]},
+                "name",
+                order_by="creation asc",
+            )
+            or "Administrator"
+        )
+
     frappe.enqueue(
         "ocr_intelligent.api.ocr_pipeline._executer_pipeline_job",
         queue="long",
@@ -253,15 +269,15 @@ def pipeline_complet(file_url="", source_doctype="", payment_method=""):
         ext=ext,
         source_doctype=source_doctype,
         payment_method=payment_method,
-        uploaded_by=frappe.session.user,
+        uploaded_by=utilisateur_actuel,   # ← valeur capturée avant enqueue
         job_token=job_token,
         file_url=file_url,
     )
 
     return {"success": True, "async": True, "job_id": job_token}
 
-
 @frappe.whitelist()
+#Polling — vérifie si le job est terminé
 def get_ocr_statut(job_id):
     status = frappe.cache().get_value("ocr_pipeline_status_{}".format(job_id))
 
@@ -297,7 +313,7 @@ def get_ocr_statut(job_id):
 
     return {"status": "inconnu"}
 
-
+#Job principal : OCR + détection type + extraction
 def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
                             source_doctype, uploaded_by, job_token,
                             payment_method="", file_url=""):
@@ -320,7 +336,7 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
 
         mots = [m for m in (texte_brut or "").split() if len(m) > 1]
 
-        if len(mots) < 1:
+        if len(mots) < 1:#Sauvegarde résultat dans le cache Redis
             _stocker_resultat(job_token, {
                 "success":         False,
                 "score_confiance": score,
@@ -338,6 +354,7 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
             or bool(payment_method and _norm_pm(payment_method))
         )
         if _is_payment:
+            # Sous-pipeline dédié chèques et traites
             _executer_pipeline_payment_entry(
                 chemin_tmp=chemin_tmp,
                 texte_brut=texte_brut,
@@ -431,7 +448,7 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
         #    preprocessing agressif (défloutage) avant de rejeter ─────────
         _texte_principal = texte_brut
         if not any(s in texte_brut.lower() for s in _SIGNAUX_FACTURE):
-            texte_passe2 = _ocr_enhanced_blurry(chemin_tmp, ext)
+            texte_passe2 = _ocr_enhanced_blurry(chemin_tmp, ext)#Passe 2 OCR avec défloutage agressif
             if texte_passe2 and any(s in texte_passe2.lower() for s in _SIGNAUX_FACTURE):
                 texte_brut = texte_passe2
                 _texte_principal = texte_brut
@@ -468,13 +485,13 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
         champs_cles = ["numero_facture", "date", "fournisseur", "date_echeance"]
         manquants_apres_texte = [c for c in champs_cles if c not in champs_valides]
         if manquants_apres_texte:
-            champs_image = _extraire_champs_entete_image(chemin_tmp)
+            champs_image = _extraire_champs_entete_image(chemin_tmp)#Extrait fournisseur/date/numéro depuis l'image
             for champ_img, valeur_img in (champs_image or {}).items():
                 champ_norm = _NORMALISE_CHAMPS.get(champ_img, champ_img)
                 if valeur_img and champ_norm not in champs_valides:
                     champs_valides[champ_norm] = valeur_img
 
-        montants_image = _extraire_montants_image(chemin_tmp)
+        montants_image = _extraire_montants_image(chemin_tmp)#Extrait HT/TVA/TTC depuis la zone bas du document
         for champ_m, val_m in montants_image.items():
             if val_m and val_m > 0:
                 val_existante = champs_valides.get(champ_m)
@@ -492,7 +509,7 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
             seuil_confiance = 0.3 if score < 70 else 0.4
             if champ not in champs_valides and meta.get("confiance", 0) >= seuil_confiance:
                 champs_valides[champ] = meta["valeur"]
-
+        #Vérifie et recalcule HT = TTC - TVA
         _nettoyer_coherence_montants(champs_valides)
 
         if type_doc == "inconnu":
@@ -728,7 +745,7 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "OCR Pipeline Job Error")
         _stocker_erreur(job_token, "Erreur inattendue : {}".format(str(e)))
-
+#Sauvegarde erreur dans le cache Redis
     finally:
         if os.path.exists(chemin_tmp):
             try:
@@ -1166,12 +1183,12 @@ def _extraire_champs_entete_image(chemin_fichier):
             elif len(num_val) > 30:
                 del champs["numero_facture"]
 
-        if "date" not in champs:
+        if "date" not in champs:#Extrait une date par regex
             date = _extraire_date_heuristique(texte_combine)
             if date:
                 champs["date"] = date
 
-        if "date" not in champs:
+        if "date" not in champs:#Extrait la date par crop image
             date = _extraire_date_crop(pil_full)
             if date:
                 champs["date"] = date
@@ -1181,7 +1198,7 @@ def _extraire_champs_entete_image(chemin_fichier):
             if fournisseur:
                 champs["fournisseur"] = fournisseur
 
-        if "numero_facture" not in champs:
+        if "numero_facture" not in champs:#Extrait le numéro facture par patterns
             num = _extraire_numero_facture_heuristique(texte_combine)
             if num:
                 champs["numero_facture"] = num
@@ -1249,7 +1266,7 @@ def _extraire_numero_facture_heuristique(texte):
                 return val
     return None
 
-
+#Détecte le fournisseur dans le texte
 def _detecter_fournisseur_heuristique(texte):
     try:
         fournisseurs_connus = frappe.get_list(
@@ -1398,10 +1415,10 @@ def _extraire_montants_image(chemin_fichier):
         texte_col = pytesseract.image_to_string(
             pil_img, lang="fra+eng", config="--oem 1 --psm 4"
         )
-
+#Parse et agrège les montants (multi-taux TVA)
         r_sparse  = _parser_montants(texte_sparse)
         r_col     = _parser_montants(texte_col)
-        resultats = _fusionner_montants(r_sparse, r_col)
+        resultats = _fusionner_montants(r_sparse, r_col)#Fusionne les résultats de 2 passes OCR
 
         # ── Passe Otsu : correction du timbre fiscal ───────────────────────────
         # Le preprocessing adaptatif peut lire "1,000" comme "4,000" pour le
@@ -1525,7 +1542,7 @@ def _parser_montants(texte):
         if not ll or _est_ligne_footer(ligne):
             continue
 
-        if PAT_LIGNE_TVA.search(ll):
+        if PAT_LIGNE_TVA.search(ll):#Extrait tous les nombres (format TND/international)
             nums_ligne = [n for n in _extraire_tous_nombres_tunisiens(ligne) if _est_montant_valide(n)]
 
             # Identifier et exclure les valeurs de taux (ex: 5.5, 20.0)
@@ -1845,7 +1862,7 @@ def _fusionner_montants(r1, r2):
 # ──────────────────────────────────────────────────────────────────────
 # CORRECTION EXTENSION
 # ──────────────────────────────────────────────────────────────────────
-
+#Corrige l'extension du fichier uploadé
 def _corriger_extension(nom, ct, contenu):
     ext = os.path.splitext(nom)[1].lower()
     if ext in [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp"]:

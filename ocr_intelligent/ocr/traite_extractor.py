@@ -162,6 +162,12 @@ _PATTERNS_CHAMP_TRAITE = {
 
 
 def _extraire_numero_traite_heuristique(texte: str) -> str | None:
+    """
+    Fallback heuristique pour le numéro de traite quand les patterns réguliers échouent.
+    Cherche dans l'ordre : « ordre de paiement », « LC N° », « CNP »,
+    puis parcourt les premières 80 lignes pour trouver un entier 9–14 chiffres
+    hors contexte RIB ou date.
+    """
     if not texte:
         return None
     lignes = [l.strip() for l in texte.splitlines() if l.strip()]
@@ -198,6 +204,11 @@ def _extraire_numero_traite_heuristique(texte: str) -> str | None:
 
 
 def _extraire_nom_societe_heuristique(texte: str) -> str | None:
+    """
+    Détecte le nom de société du tireur en cherchant une forme juridique
+    (SARL, SA, SUARL…) dans les 30 premières lignes.
+    Exclut les lignes purement bruyantes (LETTRE, CHANGE, SIGNATURE…).
+    """
     _PAT_FORME_JUR = re.compile(r"\b(?:SARL|SA|SUARL|SAS|EURL|SNC|GIE)\b", re.IGNORECASE)
     _BRUIT_LIGNES = re.compile(
         r"\b(?:LETTRE|CHANGE|EFFET|DATE|ECHEANCE|MONTANT|VALEUR|ACCEPTE|SIGNATURE|REPUBLIQUE|BILL|EXCHANGE)\b",
@@ -228,6 +239,16 @@ def _detecter_acceptation(texte: str) -> bool:
 
 
 def _extraire_champs_traite(texte: str) -> tuple[dict, list, float]:
+    """
+    Extraction principale de tous les champs d'une traite/lettre de change depuis le texte OCR.
+
+    Champs extraits : numero_traite, date_emission, date_echeance, montant,
+    montant_lettres, tireur, tire, beneficiaire, domiciliation, rib.
+
+    Inclut des fallbacks robustes pour : tireur tout-caps, bénéficiaire zone basse,
+    tiré depuis préfixe RIB, normalisation RIB garble OCR, dates inversions.
+    Retourne (champs: dict, incertains: list[str], confiance: float 0–1).
+    """
     champs = {}
     incertains = []
     scores_confiance = []

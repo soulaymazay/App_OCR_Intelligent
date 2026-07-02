@@ -1,9 +1,23 @@
+# -*- coding: utf-8 -*-
+"""
+login.py — Groupe Bayoudh Metal
+API d'authentification OCR : login/logout avec génération de token API:SECRET.
+"""
 import frappe
 from frappe import _
 import secrets
 
 @frappe.whitelist(allow_guest=True)
 def login(email=None, password=None):
+    """
+    Authentifie un utilisateur et retourne un token Bearer (api_key:api_secret).
+
+    Vérifie que l'utilisateur possède un rôle OCR (Admin/Validator/Operator).
+    Génère un nouveau api_secret à chaque connexion.
+
+    Retourne : { status, message, user, role, full_name, token }
+    Lève AuthenticationError si rôle OCR absent ou identifiants incorrects.
+    """
 
     if not email or not password:
         frappe.throw(_("Email et mot de passe requis."))

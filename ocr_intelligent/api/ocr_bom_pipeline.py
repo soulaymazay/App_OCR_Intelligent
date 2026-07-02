@@ -248,6 +248,26 @@ def attacher_fichier_a_document(doctype, docname, file_url):
 
 def _executer_pipeline_bom_job(chemin_tmp, nom_fichier, ext,
                                 source_doctype, uploaded_by, job_token, file_url=""):
+    """
+    Worker principal du pipeline BOM/Nomenclature (exécuté par Redis).
+
+    Rôle : Analyser un fichier de nomenclature et en extraire l'en-tête
+    (article produit, société, quantité) et la liste des composants.
+
+    Étapes :
+      1. Détection du type de fichier :
+         - .xlsx → excel_bom_parser (parser structuré, haute confiance)
+           Avantage : conserve la structure tableau, confiance=95.
+         - image/PDF → OCR classique + bom_extractor (regex)
+      2. Validation minimale : rejet si 0 composant détecté.
+      3. Mapping champs_ocr → fieldnames ERPNext BOM via MAPPING_BOM.
+      4. Création/mise à jour OCR Document avec tous les champs.
+      5. Stockage résultat dans Redis + nettoyage fichier tmp.
+
+    Note Excel (v9.3 fix) : ocr_engine._xlsx() concatène le texte à plat,
+    perdant la structure tableau. Le parser dédié excel_bom_parser.py
+    utilise openpyxl.iter_rows() pour préserver les colonnes.
+    """
     try:
         # ══════════════════════════════════════════════════════════════
         # NOUVELLE LOGIQUE : Détection Excel → Parser structuré
@@ -438,7 +458,7 @@ def _executer_pipeline_bom_job(chemin_tmp, nom_fichier, ext,
             
             composants_valides.append(comp)
 
-        # ── Étape 7 : Créer/Mettre à jour le OCR Document ────────────
+   # ── Étape 7 : Créer/Mettre à jour le OCR Document ────────────
         # Combiner header + composants dans extracted_field pour traçabilité
         tous_champs = {**champs_ocr}
         if composants_valides:
@@ -456,28 +476,86 @@ def _executer_pipeline_bom_job(chemin_tmp, nom_fichier, ext,
                 ocr_doc_name = existants[0]["name"]
                 break
 
+        # Résumé lisible (remplace le texte brut absent pour Excel/OCR)
+        # ── Texte extrait : reconstruction lisible du contenu Excel/BOM ──
+        def _construire_texte_extrait(champs, composants):
+            lignes = []
+            lignes.append("=== EN-TÊTE NOMENCLATURE ===")
+            for cle, valeur in champs.items():
+                lignes.append(f"{cle} : {valeur}")
+
+            if composants:
+                lignes.append("")
+                lignes.append("=== COMPOSANTS ===")
+                for i, comp in enumerate(composants, start=1):
+                    code = comp.get("item_code", "")
+                    nom  = comp.get("item_name", "")
+                    qty  = comp.get("qty", "")
+                    uom  = comp.get("uom", "")
+                    rate = comp.get("rate", "")
+                    lignes.append(
+                        f"{i}. {code} — {nom} | Qté : {qty} {uom} | Prix : {rate}"
+                    )
+
+            return "\n".join(lignes) if lignes else "Aucune donnée extraite."
+
+        texte_extrait_complet = _construire_texte_extrait(champs_ocr, composants_valides)
+
         statut = "Validé" if len(champs_ocr) > 0 else "Validation requise"
         if ocr_doc_name:
-            frappe.db.set_value("OCR Document", ocr_doc_name,
-                "extracted_field", json.dumps(tous_champs, ensure_ascii=False, indent=2))
-            frappe.db.set_value("OCR Document", ocr_doc_name,
-                "confidence_score", score)
-            frappe.db.set_value("OCR Document", ocr_doc_name,
-                "status", statut)
+            frappe.db.set_value("OCR Document", ocr_doc_name, {
+                "extracted_text":  texte_extrait_complet,
+                "extracted_field": json.dumps(tous_champs, ensure_ascii=False, indent=2),
+                "confidence_score": score,
+                "status":          statut,
+                "uploaded_by":     uploaded_by,
+            })
         else:
             ocr_doc_obj = frappe.get_doc({
                 "doctype":          "OCR Document",
                 "document_name":    nom_fichier,
                 "uploaded_by":      uploaded_by,
                 "confidence_score": score,
-                "extracted_text":   "",  # Pas de texte brut pour Excel
+                "extracted_text":   texte_extrait_complet,
                 "extracted_field":  json.dumps(tous_champs, ensure_ascii=False, indent=2),
                 "status":           statut,
             })
             ocr_doc_obj.insert(ignore_permissions=True)
             ocr_doc_name = ocr_doc_obj.name
 
+        # ── Étape 7b : Attacher le fichier original ───────────────────
+        try:
+            deja_joint = frappe.db.exists("File", {
+                "attached_to_doctype": "OCR Document",
+                "attached_to_name":    ocr_doc_name,
+                "file_name":           nom_fichier,
+            })
+            if not deja_joint:
+                with open(chemin_tmp, "rb") as _f:
+                    contenu_fichier = _f.read()
+
+                file_doc = frappe.get_doc({
+                    "doctype":             "File",
+                    "file_name":           nom_fichier,
+                    "attached_to_doctype": "OCR Document",
+                    "attached_to_name":    ocr_doc_name,
+                    "attached_to_field":   "file_url",
+                    "is_private":          1,
+                    "content":             contenu_fichier,
+                })
+                file_doc.insert(ignore_permissions=True)
+
+                frappe.db.set_value(
+                    "OCR Document", ocr_doc_name,
+                    "file_url", file_doc.file_url
+                )
+        except Exception:
+            frappe.log_error(frappe.get_traceback(),
+                             "OCR BOM — Échec attachement fichier")
+
         frappe.db.commit()
+
+        
 
         # ── Étape 8 : Construction résultat final ─────────────────────
         _stocker_resultat(job_token, {
@@ -537,6 +615,7 @@ def _variantes_nom(nom_fichier):
 # ──────────────────────────────────────────────────────────────────────
 
 def _stocker_resultat(job_token, result):
+    """Persiste le résultat du job BOM dans Redis (statut 'termine', TTL 1h)."""
     frappe.cache().set_value(
         f"ocr_bom_result_{job_token}",
         json.dumps(result, default=str),
@@ -548,6 +627,7 @@ def _stocker_resultat(job_token, result):
 
 
 def _stocker_erreur(job_token, erreur):
+    """Persiste un message d'erreur dans Redis et positionne le statut BOM à 'erreur'."""
     frappe.cache().set_value(
         f"ocr_bom_erreur_{job_token}", erreur, expires_in_sec=3600
     )

@@ -44,6 +44,10 @@ _UDM_MAP = {
 
 
 def _normaliser_udm(val: str) -> str:
+    """
+    Mappe une valeur d'unité de mesure brute vers le nom ERPNext standardisé.
+    Retourne "" si la valeur n'est pas reconnue (pas de fallback).
+    """
     if not val:
         return ""
     val_l = val.strip().lower()
@@ -71,6 +75,7 @@ def _float(v) -> float:
 
 
 def _int(v) -> int:
+    """Convertit en entier via _float (gestion virgule FR et espaces)."""
     return int(_float(v))
 
 

@@ -171,6 +171,10 @@ def _to_float(val, default=0.0):
 
 
 def _get_company():
+    """
+    Retourne le nom de la société active, avec cascade de fallback :
+    préférence utilisateur → défaut global → Global Defaults doc.
+    """
     return (
         frappe.defaults.get_user_default("Company")
         or frappe.defaults.get_global_default("company")
@@ -655,6 +659,10 @@ def remplir_formulaire(nom_fichier):
 
 @frappe.whitelist()
 def get_liste_documents_traites():
+    """
+    Retourne la liste des 100 derniers OCR Documents traités.
+    Utilisée dans le tableau de bord OCR pour afficher l'historique.
+    """
     try:
         docs = frappe.get_list(
             "OCR Document",
@@ -671,6 +679,10 @@ def get_liste_documents_traites():
 
 @frappe.whitelist()
 def get_statistiques():
+    """
+    Retourne les statistiques d'utilisation du module OCR :
+    total de documents, nombre par statut (Validé, Rejeté, En attente, etc.).
+    """
     try:
         return {
             "succes": True,
@@ -692,6 +704,11 @@ def get_statistiques():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _get_chemin_fichier_from_url(file_url):
+    """
+    Traduit une URL Frappe (/private/files/ ou /files/) en chemin absolu
+    sur le système de fichiers du serveur.
+    Retourne None si le fichier n'existe pas.
+    """
     if not file_url:
         return None
     site_path = frappe.get_site_path()
@@ -709,6 +726,10 @@ def _get_chemin_fichier_from_url(file_url):
 
 
 def _detecter_type_document(champs):
+    """
+    Détecte le type de document (facture, BL, chèque, BC) à partir
+    des clés présentes dans le dict de champs extraits.
+    """
     champs_lower = {k.lower(): v for k, v in champs.items()}
     if any(k in champs_lower for k in ["numero_facture", "montant_ttc", "montant_tva", "bill_no", "grand_total"]):
         return "facture"
@@ -722,6 +743,11 @@ def _detecter_type_document(champs):
 
 
 def _structurer_champs(champs, type_document):
+    """
+    Normalise les clés de champs vers les noms standards OCR
+    en utilisant des alias (ex: bill_no → numero_facture).
+    Retourne un dict {champ_standard: valeur}.
+    """
     champs_structures = {}
     mapping_standard = {
         "date":           ["date", "date_facture", "bill_date"],
@@ -752,6 +778,10 @@ def _structurer_champs(champs, type_document):
 
 
 def _verifier_champs_obligatoires(type_document, champs):
+    """
+    Vérifie la présence des champs obligatoires pour chaque type de document.
+    Retourne une liste d'erreurs {champ, message, action} pour les champs manquants.
+    """
     CHAMPS_OBLIGATOIRES = {
         "facture":       ["numero_facture", "date", "fournisseur", "montant_ttc"],
         "bon_livraison": ["numero_bl",      "date_livraison",      "fournisseur"],
@@ -786,6 +816,10 @@ def _verifier_champs_obligatoires(type_document, champs):
 
 
 def _generer_message(nb_remplis, nb_erreurs):
+    """
+    Génère un message récapitulatif lisible selon le nombre de champs
+    remplis automatiquement vs le nombre d'erreurs/absences.
+    """
     if nb_erreurs == 0:
         return f"✅ {nb_remplis} champs remplis automatiquement avec succès"
     elif nb_remplis == 0:
@@ -800,6 +834,17 @@ def _generer_message(nb_remplis, nb_erreurs):
 
 @frappe.whitelist()
 def lancer_traitement_async(ocr_document_name):
+    """
+    Lance le traitement OCR d'un document en arrière-plan (queue Redis 'long').
+    Met le statut à "En cours" avant l'enfilage pour que l'UI puisse afficher
+    l'état immédiatement.
+
+    Args :
+      ocr_document_name -- Nom de l'OCR Document à traiter
+
+    Retourne :
+      {"succes": True, "job_id": "ocr_<name>", ...}
+    """
     if not ocr_document_name:
         return {"succes": False, "erreur": "Nom du document OCR obligatoire"}
     if not frappe.db.exists("OCR Document", ocr_document_name):
@@ -833,6 +878,21 @@ def lancer_traitement_async(ocr_document_name):
 
 
 def _worker_ocr_background(ocr_document_name):
+    """
+    Worker exécuté en arrière-plan par Redis (via frappe.enqueue).
+    Orchestre le pipeline complet sur un OCR Document existant :
+
+    Étapes chronées avec _chrono() :
+      1. Chargement du doc Frappe
+      2. Résolution du chemin physique du fichier
+      3. Extraction OCR via ocr_engine (PaddleOCR / Tesseract)
+      4. Extraction intelligente des champs (ExtracteurIntelligent)
+      5. Validation des données (Validateur)
+      6. Persistance du résultat dans l'OCR Document
+      7. Notification temps-réel (frappe.publish_realtime) vers l'UI
+
+    En cas d'échec : statut → "Rejeté" + log de l'erreur + performance_log.
+    """
     def _chrono(etapes, nom_etape, debut_etape):
         duree = round(time.time() - debut_etape, 3)
         etapes.append({"etape": nom_etape, "duree_s": duree})
@@ -940,6 +1000,14 @@ def _worker_ocr_background(ocr_document_name):
 
 @frappe.whitelist()
 def get_statut_traitement(ocr_document_name):
+    """
+    Polling : retourne l'état d'avancé du traitement OCR d'un document.
+    Utilisé par le frontend pour afficher la progression en temps réel.
+
+    Retourne :
+      {"statut": "En cours", "elapsed_s": 3.2, "etapes": [...], "termine": False}
+      {"statut": "Validé",   "score": 85, "termine": True}
+    """
     if not frappe.db.exists("OCR Document", ocr_document_name):
         return {"succes": False, "erreur": "Document introuvable"}
 

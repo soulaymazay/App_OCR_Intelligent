@@ -86,6 +86,18 @@ _UDM_MAP = {
 # ──────────────────────────────────────────────────────────────────────
 
 def extraire_champs_article(texte: str) -> dict:
+    """
+    Point d'entrée principal de l'extraction d'un article depuis un texte OCR.
+
+    Orchestre tous les sous-extracteurs (code, nom, groupe, UDM, prix, description
+    et les 15+ onglets Sage ERP) puis retourne un dict unifié :
+      {
+        "champs"        : dict fieldname → valeur extraite,
+        "confiances"    : dict fieldname → score 0.0–1.0,
+        "type_document" : "fiche_article" ou "inconnu"
+      }
+    Retourne _resultat_vide() si le texte est vide.
+    """
     if not texte or not texte.strip():
         return _resultat_vide()
 
@@ -433,6 +445,17 @@ _SAGE_CAT_MAP = {
 
 
 def _extraire_groupe(texte, lignes, champs, confiances):
+    """
+    Extrait le groupe d'article (item_group) et la catégorie Sage.
+
+    Priorité :
+      1. Pattern Sage ERP  « Catégorie : CODE »  → code mappé via _SAGE_CAT_MAP
+      2. Pattern multiligne (label ligne N, valeur ligne N+1)
+      3. Pattern inline avec label « groupe d'article / item group »
+      4. Nom de groupe connu directement dans le texte (_GROUPES_CONNUS)
+      5. Détection par mots-clés (_MOTS_CLES_GROUPE)
+    Note : désactivé sur les fiches techniques (évite les faux positifs).
+    """
     # ── Pattern Sage ERP PRIORITAIRE : "Catégorie : CODE" ───────────
     m_cat = re.search(r"Cat[eé]gorie\s*:\s*([A-Z0-9]{2,10})\b", texte, re.IGNORECASE)
     if m_cat:
@@ -786,6 +809,10 @@ _SAGE_LABEL_GUARD = re.compile(
 
 
 def _couper_avant_label(s: str, maxlen: int = 40) -> str:
+    """
+    Tronque la chaîne dès qu'un nouveau label (Mot: ou Mot-) est détecté.
+    Evite de capturer la valeur du champ suivant dans la même ligne.
+    """
     m = re.search(r'\s+[A-ZÀ-Ÿ][^\s]+(?:\s+[^\s:]+)*\s*[:\-]', s)
     if m:
         s = s[:m.start()].strip()
@@ -801,6 +828,15 @@ _STOP_DESC_SECTIONS = re.compile(
 
 
 def _extraire_description(texte, lignes, champs, confiances):
+    """
+    Extrait la description/spécifications techniques de l'article.
+
+    Stratégies :
+      1. Bloc DESCRIPTION délimité (datasheets techniques)
+      2. Pattern label « description : … » multiligne (≤4 lignes)
+      3. Heuristique : lignes contenant des valeurs physiques (mm, kg, V, Hz…)
+    Ignoré sur les fiches Sage ERP (Gestion stock / Unité stock détectés).
+    """
     if re.search(r"Gestion\s*stock\s*[:\-]|Unit[eé]\s*stock|Fiche\s+article", texte, re.IGNORECASE):
         return
 
@@ -863,6 +899,10 @@ def _extraire_description(texte, lignes, champs, confiances):
 # ──────────────────────────────────────────────────────────────────────
 
 def _extraire_statut(texte, lignes, champs, confiances):
+    """
+    Extrait le statut de l'article (Actif/Inactif) depuis un texte Sage ERP.
+    Remplit les champs ERPNext « disabled » (0/1) et « custom_statut_article ».
+    """
     # Pattern existant
     m = re.search(r'Statut\s*[:|]?\s*(Actif|Inactif)', texte, re.IGNORECASE)
     if not m:
@@ -882,6 +922,10 @@ def _extraire_statut(texte, lignes, champs, confiances):
 
 
 def _extraire_gestion_stock(texte, lignes, champs, confiances):
+    """
+    Extrait le mode de gestion du stock Sage et l'indicateur ERPNext is_stock_item.
+    Valeur « article géré » → is_stock_item = 1, sinon 0.
+    """
     m = re.search(r'Gestion\s*stock\s*:?\s*([^\n|,;]{3,60})', texte, re.IGNORECASE)
     if m:
         raw = _nettoyer_chaine(m.group(1))
@@ -895,6 +939,10 @@ def _extraire_gestion_stock(texte, lignes, champs, confiances):
 
 
 def _extraire_gestion_lot_serie(texte, lignes, champs, confiances):
+    """
+    Extrait la gestion de lot (has_batch_no) et de série (has_serial_no) Sage ERP.
+    Détecte les mots-clés « géré », « gere » pour activer les indicateurs ERPNext.
+    """
     m_lot = re.search(r'Gestion\s*lot\s*[:\-]?\s*([^\n|,;]{3,60})', texte, re.IGNORECASE)
     if m_lot:
         val_raw = _nettoyer_chaine(m_lot.group(1))
@@ -915,6 +963,11 @@ def _extraire_gestion_lot_serie(texte, lignes, champs, confiances):
 
 
 def _extraire_unites_sage(texte, lignes, champs, confiances):
+    """
+    Extrait les unités de mesure Sage : achat (purchase_uom), vente (sales_uom),
+    poids (weight_uom) et conditionnement (custom_uom_conditionnement).
+    Le fallback « Unité » est intentionnellement ignoré (trop générique).
+    """
     for label, champ in [
         (r"[Uu]nit[eé]\s*achat\s*[:\-]\s*([A-Za-z]{1,5})",  "purchase_uom"),
         (r"[Uu]nit[eé]\s*(?:de\s*)?vente\s*[:\-]\s*([A-Za-z]{1,5})", "sales_uom"),
@@ -942,6 +995,10 @@ def _extraire_unites_sage(texte, lignes, champs, confiances):
 
 
 def _extraire_poids(texte, lignes, champs, confiances):
+    """
+    Extrait le poids de l'unité de stock (weight_per_unit) et l'UDM poids.
+    Pattern Sage ERP : « Poids de l'US : 1,250 » → weight_per_unit = 1.25
+    """
     m = re.search(r"Poids\s*de\s*l[''']?US\s*[:\-]?\s*([\d]+(?:[,.][\d]+)?)", texte, re.IGNORECASE)
     if m:
         try:
@@ -958,6 +1015,12 @@ def _extraire_poids(texte, lignes, champs, confiances):
 # ──────────────────────────────────────────────────────────────────────
 
 def _extraire_champs_identification_sage(texte, lignes, champs, confiances):
+    """
+    Extrait les champs de l'onglet « Identification » Sage ERP :
+    barcode/EAN, désignation 2 & 3, clé recherche, ligne produit, norme,
+    référence douanière, DEB, accès gestionnaire, informations produit,
+    texte production, texte préparation.
+    """
     for pat in [
         r"Code\s+EAN\s*[:\-]?\s*([0-9]{8,14})",
         r"EAN\s*[:\-]?\s*([0-9]{8,14})",
@@ -1079,6 +1142,11 @@ def _extraire_champs_identification_sage(texte, lignes, champs, confiances):
 
 
 def _extraire_familles_statistiques(texte, lignes, champs, confiances):
+    """
+    Extrait les familles statistiques Sage ERP :
+    nature, caractéristique technique, forme et autres codes statistiques.
+    Exclut les termes anglais chimiques/techniques (faux positifs datasheets).
+    """
     if True:
         m = re.search(
             r"Nature\s*[:\-]?\s*([A-Z0-9]{1,20})\s+([A-Za-zÀ-ÿ][^\n\t]{2,79})",
@@ -1139,6 +1207,10 @@ def _extraire_familles_statistiques(texte, lignes, champs, confiances):
 
 
 def _extraire_champs_physiques(texte, lignes, champs, confiances):
+    """
+    Extrait les dimensions physiques Sage ERP :
+    épaisseur, longueur barre, et autres mesures structurelles.
+    """
     for pat_ep in [
         r"\bEpaisseur\s*[:\-]\s*([\d][\d\s.,]*(?:\s*mm)?)",
         r"\bEpaisseur\s{2,}([\d][\d\s.,]*(?:\s*mm)?)",
@@ -1212,6 +1284,12 @@ def _extraire_champs_physiques(texte, lignes, champs, confiances):
 # ──────────────────────────────────────────────────────────────────────
 
 def _extraire_gestion_avancee(texte, lignes, champs, confiances):
+    """
+    Extrait les champs de l'onglet « Gestion » Sage ERP :
+    méthode valorisation (CMUP/FIFO/LIFO), mode gestion, stock négatif,
+    traçabilité, titre %, coefficient DLU, article remplacement, gestion
+    péremption, compteurs lot/série.
+    """
     m_vm = re.search(
         r"M[eé]thode\s+de\s+valorisation\s*[:\-]?\s*([^\n\t,|]{2,40})",
         texte, re.IGNORECASE
@@ -2096,6 +2174,10 @@ def _extraire_clients_sage(texte, lignes, champs, confiances):
 # ──────────────────────────────────────────────────────────────────────
 
 def _normaliser_texte(texte: str) -> str:
+    """
+    Normalise le texte OCR brut : unifie les tirets, apostrophes,
+    corrige les confusions O/0 et l/1 fréquentes en OCR, compacte les espaces.
+    """
     t = texte
     t = re.sub(r"[‐‑‒–—−]", "-", t)
     t = re.sub(r"['`´]", "'", t)
@@ -2108,6 +2190,11 @@ def _normaliser_texte(texte: str) -> str:
 
 
 def _nettoyer_code(val: str) -> str:
+    """
+    Nettoie une valeur de code article : conserve le premier token,
+    supprime la ponctuation finale, vérifie la longueur (2–40 chars).
+    Retourne "" si invalide.
+    """
     val = val.strip()
     parts = val.split()
     if parts:
@@ -2117,6 +2204,10 @@ def _nettoyer_code(val: str) -> str:
 
 
 def _nettoyer_chaine(val: str) -> str:
+    """
+    Nettoie une chaîne de caractères : supprime les espaces multiples,
+    la ponctuation initiale/finale (.,;:-|/) et tronque à la 1ère ligne.
+    """
     val = val.strip()
     val = re.sub(r'\s+', ' ', val)
     val = val.strip(".,;:-|/")
@@ -2147,6 +2238,11 @@ def _normaliser_udm(val: str) -> str:
 
 
 def _mapper_groupe(val: str):
+    """
+    Mappe une valeur texte vers un groupe ERPNext connu.
+    Cherche d'abord dans _GROUPES_CONNUS (correspondance exacte),
+    puis dans _MOTS_CLES_GROUPE (mots-clés). Retourne None si aucun match.
+    """
     val_l = val.lower()
     for groupe in sorted(_GROUPES_CONNUS, key=len, reverse=True):
         if groupe.lower() in val_l or val_l in groupe.lower():
@@ -2159,6 +2255,10 @@ def _mapper_groupe(val: str):
 
 
 def _resultat_vide():
+    """
+    Retourne le squelette d'un résultat vide avec tous les champs à None.
+    Utilisé quand le texte d'entrée est vide ou non exploitable.
+    """
     return {
         "champs": {
             "item_code":          None,

@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+"""
+boot.py — Groupe Bayoudh Metal
+Hook de démarrage de session Frappe (boot_session).
+S'assure que les Party Types ERPNext existent et les injecte dans bootinfo.
+"""
 import frappe
 
 _CACHE_KEY = "ocr_intelligent:party_account_types"
@@ -11,10 +17,15 @@ _DEFAULT_PARTY_TYPES = {
 }
 
 def _get_party_types():
+    """Charge tous les Party Types depuis la base de données ERPNext."""
     rows = frappe.get_all("Party Type", fields=["name", "account_type"])
     return frappe._dict((r["name"], r["account_type"]) for r in rows)
 
 def _ensure_party_types_exist():
+    """
+    Crée les Party Types par défaut (Customer, Supplier, Employee, Shareholder)
+    s'ils n'existent pas encore. Commit après insertion.
+    """
     existing = {r["name"] for r in frappe.get_all("Party Type", fields=["name"])}
     created = False
     for party_type, account_type in _DEFAULT_PARTY_TYPES.items():
@@ -29,6 +40,10 @@ def _ensure_party_types_exist():
         frappe.db.commit()
 
 def ensure_party_types_boot(bootinfo):
+    """
+    Hook boot_session : injecte les Party Types dans bootinfo.party_account_types.
+    Ignore les sessions Guest. Utilise Redis (TTL 1h) pour éviter les requêtes SQL répétées.
+    """
     if frappe.session.user == "Guest":
         return
 

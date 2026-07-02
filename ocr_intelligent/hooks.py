@@ -27,20 +27,34 @@ doc_events = {
     },
     "Payment Entry": {
         "validate":     "ocr_intelligent.api.validators.validate_cheque_date",
-        "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr"
-    },
+        "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr",
+        "on_submit":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_depuis_purchase_invoice",
+        "on_cancel":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_depuis_purchase_invoice",
+    },"on_update":      "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_depuis_payment_entry",
     # ── Purchase Invoice : fusionner after_insert + on_submit + on_cancel ──
     "Purchase Invoice": {
         "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr",
         "on_submit":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_depuis_purchase_invoice",
         "on_cancel":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_depuis_purchase_invoice",
+        "on_update":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_depuis_purchase_invoice",
+    },
+ # ── Item (Article) ────────────────────────────────────────────────
+   "Item": {
+    "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr",
+    "on_update":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_item_dans_ocr",
+},
+ 
+ # ── BOM (Nomenclature) ────────────────────────────────────────────
+    "BOM": {
+        "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr",
+        "on_submit":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_bom_dans_ocr",
+        "on_cancel":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_bom_dans_ocr",
+        "on_update":    "ocr_intelligent.doctype.ocr_document.ocr_document.sync_statut_bom_dans_ocr",
     },
     "Sales Invoice": {
         "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr"
     },
-    "Item": {
-        "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr"
-    },
+    
     "Purchase Order": {
         "after_insert": "ocr_intelligent.api.auto_create_document.enregistrer_document_module_dans_ocr"
     },

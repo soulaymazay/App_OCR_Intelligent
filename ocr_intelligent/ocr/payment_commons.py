@@ -25,6 +25,10 @@ _OCR_CACHE: dict = {}
 
 
 def _ocr_log(msg: str, level: str = "debug") -> None:
+    """
+    Journalise un message OCR via frappe.logger (debug/info/warning/error).
+    Replie vers print si Frappe n'est pas disponible (tests unitaires).
+    """
     prefixed = f"[OCR] {msg}"
     try:
         import frappe
@@ -229,6 +233,11 @@ _MULTIPLICATEURS = {
 
 
 def _lettres_vers_chiffre(texte_lettres):
+    """
+    Convertit un montant en toutes lettres françaises en valeur numérique.
+    Gestion des centaines, milliers, millions, milliards.
+    Retourne None si la conversion échoue.
+    """
     s = re.sub(r"[-—–]", " ", (texte_lettres or "").lower().strip())
     s = re.sub(r"\s+", " ", s).strip()
     mots = s.split()
@@ -262,6 +271,11 @@ def _lettres_vers_chiffre(texte_lettres):
 
 
 def _extraire_montant_lettres(texte):
+    """
+    Extrait un montant écrit en toutes lettres depuis le texte OCR d'un chèque/traite.
+    Détecte les patterns « somme de X dinars et Y millimes » / « montant en lettres ».
+    Retourne le float correspondant ou None.
+    """
     if not texte:
         return None
     t = re.sub(r"\s+", " ", texte.lower().replace("\n", " "))
@@ -306,6 +320,12 @@ def _extraire_montant_lettres(texte):
 
 
 def _parser_montant(val) -> float | None:
+    """
+    Convertit une chaîne montant OCR en float.
+    Gère : espaces comme séparateurs de milliers, virgule ou point décimal,
+    caractères non-break, symboles monétaires (TND/DT/€).
+    Retourne None si la valeur est invalide ou hors garde-fous (0–999999).
+    """
     if not val:
         return None
     s = re.sub(r"(?i)\s*(TND|DT|dinars?|millimes?|euros?|€)\s*", " ", str(val))
@@ -359,6 +379,16 @@ def _parser_montant(val) -> float | None:
 
 
 def _pretraiter_texte_ocr(texte: str) -> str:
+    """
+    Normalise le texte brut OCR avant extraction.
+
+    Corrections appliquées :
+    - Tirets Unicode → tiret ASCII
+    - Barres obliques alternatives → /
+    - Confusion O/0 et l/I entre chiffres
+    - Espaces parasites dans les dates
+    - Garbles OCR fréquents sur traites tunisiennes (PANNEA…, TUN…, OLEO…)
+    """
     t = texte
     t = re.sub(r"[‐‑‒–—−]", "-", t)
     t = t.replace("／", "/").replace("⁄", "/")
@@ -380,6 +410,12 @@ def _pretraiter_texte_ocr(texte: str) -> str:
 
 
 def _ameliorer_image_floue(chemin_img: str):
+    """
+    Tente d'améliorer un document OCR de mauvaise qualité :
+    1. Upscale ×2 (max 2400px) + filtre de nettoyage
+    2. Tesseract PSM 3, PSM 6, PSM 11 avec la meilleure image prétraitée
+    Retourne (texte_meilleur: str, score: int).
+    """
     try:
         import cv2
         import numpy as np
@@ -470,6 +506,7 @@ def _ameliorer_image_floue(chemin_img: str):
             return "", 0
 
         def crit(t):
+            """Critère de sélection du meilleur résultat OCR : pondération score (45%) + mots propres (55%)."""
             sc, mots, txt = t
             mots_propres = len([
                 m for m in txt.split()
@@ -486,6 +523,7 @@ def _ameliorer_image_floue(chemin_img: str):
 
 
 def _tenter_amelioration_texte(chemin_img: str) -> str:
+    """Appelle _ameliorer_image_floue et retourne uniquement le texte (chaîne vide si échec)."""
     txt, _ = _ameliorer_image_floue(chemin_img)
     return txt
 
@@ -496,6 +534,15 @@ def _tenter_amelioration_texte(chemin_img: str) -> str:
 
 
 def _evaluer_qualite(texte, score_ocr) -> bool:
+    """
+    Retourne True si la qualité OCR est insuffisante (ré-extraction nécessaire).
+
+    Critères de rejet :
+    - Moins de 5 mots utiles
+    - score_ocr < 40
+    - Plus de 5 caractères parasites consécutifs (|, \\, @…)
+    - Ratio de mots propres (alphanum) < 35% sur plus de 5 mots
+    """
     mots = [m for m in texte.split() if len(m) > 1]
     if len(mots) < 5:
         _ocr_log(f"qualite KO — mots={len(mots)} (<5)", "info")
@@ -525,6 +572,10 @@ def _evaluer_qualite(texte, score_ocr) -> bool:
 
 
 def _identifier_type_document(texte) -> tuple[str, float]:
+    """
+    Détecte le type de document de paiement (cheque/traite/inconnu) par scoring
+    de mots-clés pondérés. Retourne (type_str, confiance 0–1).
+    """
     t = texte.lower()
     sc = sum(1 for p in _PATTERNS_CHEQUE if re.search(p, t, re.IGNORECASE))
     st = sum(1 for p in _PATTERNS_TRAITE if re.search(p, t, re.IGNORECASE))
@@ -558,6 +609,11 @@ _PATTERNS_TYPE_DOC_ALT = {
 
 
 def _detecter_type_alternatif(texte: str) -> str | None:
+    """
+    Détecte si le texte correspond à un type de document NON paiement
+    (facture, bon_livraison, bon_commande, devis, nomenclature).
+    Retourne le type détecté ou None si aucun match.
+    """
     t = texte.lower()
     meilleur, max_sc = None, 0
     for typ, patterns in _PATTERNS_TYPE_DOC_ALT.items():
@@ -581,6 +637,7 @@ _LABELS_TYPE = {
 
 
 def _normaliser_payment_method(pm: str) -> str | None:
+    """Normalise le mode de paiement en 'cheque' ou 'traite' (None si non reconnu)."""
     if not pm:
         return None
     p = pm.lower().strip()
@@ -604,6 +661,13 @@ _MOIS_FR = {
 
 
 def _extraire_dates_brutes(texte: str) -> list:
+    """
+    Extrait toutes les dates numériques valides du texte OCR.
+
+    Accepte les formats JJ/MM/AAAA, JJ-MM-AAAA, JJ.MM.AA avec espaces parasites.
+    Filtre les années hors de la plage 2000 – (aujourd'hui + 5 ans).
+    Retourne une liste d'objets datetime.
+    """
     pat = r"\d{1,2}\s*[\/\-\.]\s*\d{1,2}\s*[\/\-\.]\s*\d{2,4}"
     dates = []
     annee_max = datetime.now().year + 5
@@ -630,6 +694,12 @@ def _extraire_dates_brutes(texte: str) -> list:
 
 
 def _normaliser_date(val: str) -> str | None:
+    """
+    Convertit une date brute OCR en format ISO 8601 (AAAA-MM-JJ).
+
+    Supporte : dates françaises littérales (15 janvier 2025), formats JJ/MM/AAAA,
+    JJ-MM-YY, AAAA/MM/JJ, et dates déjà en ISO. Retourne None si non parsable.
+    """
     if not val:
         return None
     val = val.strip()
@@ -669,6 +739,14 @@ _OCR_DIGIT_CONFUSIONS: dict[str, list[str]] = {
 
 
 def _corriger_annee_ocr(date_iso: str, doc_type: str = "cheque") -> tuple[str, bool]:
+    """
+    Corrige les confusions OCR dans l'année d'une date ISO (ex: 2024 → 2025).
+
+    Utilise un tableau de confusions chiffres (_OCR_DIGIT_CONFUSIONS) et vérifie
+    que la date corrigée est dans la plage valide selon le type de document
+    (chèque : -12 à +12 mois ; traite : -6 à +36 mois).
+    Retourne (date_iso_corrigée, a_été_corrigé: bool).
+    """
     if not date_iso:
         return date_iso, False
     if not isinstance(date_iso, str):
@@ -754,6 +832,7 @@ def _corriger_annee_ocr(date_iso: str, doc_type: str = "cheque") -> tuple[str, b
 
 
 def _anciennete_mois(date_doc) -> float:
+    """Retourne l'ancienneté d'une date en mois (float négatif = futur)."""
     return (datetime.now() - date_doc).days / 30.44
 
 
@@ -763,6 +842,12 @@ def _anciennete_mois(date_doc) -> float:
 
 
 def _tronquer_au_premier_champ_adjacent(valeur: str) -> str:
+    """
+    Coupe une valeur extraite dès qu'un mot-clé de champ adjacent apparaît.
+
+    Protège les suffixes de sociétés connus (TUNISIA, INTERNATIONAL…) pour ne
+    pas les confondre avec des séparateurs de champs.
+    """
     _SUFFIXES_PROTEGES = re.compile(
         r"\b(?:TUNISIA|TUNISIE|INTERNATIONAL|INDUSTRIES|PANNEAUX|"
         r"ACCESSORIES|EQUIPEMENTS|SERVICES|REPARATION|"
@@ -784,6 +869,10 @@ def _tronquer_au_premier_champ_adjacent(valeur: str) -> str:
 
 
 def _nettoyer_nom_entite(valeur: str) -> str:
+    """
+    Nettoie un nom d'entité OCR : supprime les mots blacklistés, retire les
+    caractères spéciaux, met en majuscules et normalise les espaces.
+    """
     if not valeur:
         return ""
     blacklist = ["tick", "ate", "pea", "giant", "fruit"]
@@ -796,6 +885,15 @@ def _nettoyer_nom_entite(valeur: str) -> str:
 def _extraire_champ_avec_confiance(
     texte: str, patterns: list, nom_champ: str
 ) -> tuple[str, float, bool]:
+    """
+    Tente d'extraire un champ via une liste de patterns regex ordonnés.
+
+    Calcule un score de confiance basé sur : la présence de chiffres (montant),
+    le format de date, la richesse du nom d'entité et la priorité du pattern.
+
+    Returns:
+        (valeur, confiance 0–0.99, incertitude: True si confiance < 0.65)
+    """
     best_valeur, best_conf = "", 0.0
     for i_pat, pattern in enumerate(patterns):
         for match in re.finditer(pattern, texte, re.IGNORECASE | re.MULTILINE):
@@ -827,6 +925,14 @@ def _extraire_champ_avec_confiance(
 
 
 def _valider_nom_partie(valeur: str, champ: str) -> str | None:
+    """
+    Valide et nettoie un nom de partie (tireur, tire, beneficiaire…).
+
+    Rejette : valeurs trop longues, contenant des caractères de bruit, ratio
+    lettres insuffisant, casse mixte OCR, mots courts excessifs.
+    Pour le champ 'tire' : normalise vers le nom officiel de la banque tunisienne.
+    Retourne la valeur nettoyée tronquée à 70 caractères, ou None si invalide.
+    """
     if not valeur:
         return None
     v = valeur.strip()
@@ -926,6 +1032,13 @@ def _valider_nom_partie(valeur: str, champ: str) -> str | None:
 
 
 def _fuzzy_match_frappe_parties(texte_ocr: str) -> str | None:
+    """
+    Recherche le fournisseur ou client ERPNext le plus proche du texte OCR.
+
+    Combine un score token (présence exacte dans le nom) à 70% et un score
+    fuzzy token_set_ratio à 30%. Retourne le nom ERPNext si tok_sc ≥ 40
+    ou (fuzzy_sc ≥ 70 et tok_sc > 0), None sinon.
+    """
     try:
         from rapidfuzz import fuzz
         import frappe
@@ -987,6 +1100,12 @@ def _fuzzy_match_frappe_parties(texte_ocr: str) -> str | None:
 
 
 def _mapper_frappe(form_fields: dict, mapping: dict) -> dict:
+    """
+    Convertit les champs OCR en noms de champs ERPNext selon un mapping.
+
+    Ignore les valeurs None, vides ou float 0.0. Ajoute automatiquement
+    paid_amount si form_fields['amount'] > 0.
+    """
     champs_remplis = {}
     for cle_ocr, fieldname in mapping.items():
         valeur = form_fields.get(cle_ocr)
@@ -1006,6 +1125,7 @@ def _mapper_frappe(form_fields: dict, mapping: dict) -> dict:
 
 
 def _md5_image(chemin_img: str) -> str | None:
+    """Calcule le hash MD5 d'un fichier image (lecture par blocs 64 Ko). Retourne None si erreur."""
     try:
         h = hashlib.md5()
         with open(chemin_img, "rb") as fh:

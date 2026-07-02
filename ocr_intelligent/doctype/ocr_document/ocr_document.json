@@ -31,13 +31,13 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Statut",
-   "options": "En attente\nEn cours\nValidation requise\nValid\u00e9\nRejet\u00e9",
+   "options": "En attente\nEn cours\nValidation requise\nValidé\nRejeté",
    "reqd": 1
   },
   {
    "fieldname": "uploaded_by",
    "fieldtype": "Link",
-   "label": "T\u00e9l\u00e9vers\u00e9 par",
+   "label": "Téléversé par",
    "options": "User"
   },
   {
@@ -53,14 +53,14 @@
   {
    "fieldname": "linked_doctype",
    "fieldtype": "Data",
-   "label": "Document li\u00e9 (type)",
+   "label": "Document lié (type)",
    "read_only": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "linked_docname",
    "fieldtype": "Data",
-   "label": "Document li\u00e9 (nom)",
+   "label": "Document lié (nom)",
    "read_only": 1,
    "in_list_view": 1
   },
@@ -84,7 +84,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-12 15:36:39.000000",
+ "modified": "2026-06-24 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "OCR Intelligent",
  "name": "OCR Document",
@@ -117,12 +117,25 @@
   },
   {
    "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Operateur",
+   "share": 0,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "All",
+   "role": "Validateur",
    "share": 1,
    "write": 1
   }

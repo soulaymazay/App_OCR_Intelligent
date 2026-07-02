@@ -627,8 +627,10 @@ def _executer_pipeline_article_job(chemin_tmp, nom_fichier, ext,
                 })
                 return
 
-         # ── Étape 7 : Sauvegarde OCR Document ────────────────────────
+       # ── Étape 7 : Sauvegarde OCR Document ────────────────────────
         statut       = "Validé" if len(champs_remplis) >= 3 else "Validation requise"
+        code_pour_lien = champs_remplis.get("item_code")
+
         ocr_doc_name = None
         existants    = frappe.get_list(
             "OCR Document",
@@ -639,11 +641,13 @@ def _executer_pipeline_article_job(chemin_tmp, nom_fichier, ext,
             ocr_doc_name = existants[0]["name"]
             frappe.db.set_value("OCR Document", ocr_doc_name, {
                 "extracted_text":  texte_brut,
-                "extracted_field": json.dumps(champs_ocr,
-                                              ensure_ascii=False, indent=2),
+                "extracted_field": json.dumps(champs_ocr, ensure_ascii=False, indent=2),
                 "confidence_score": score,
-                "status":           statut,
-            })
+                "status":          statut,
+                "uploaded_by":     uploaded_by,
+                "linked_doctype":  "Item" if code_pour_lien else None,
+                "linked_docname":  code_pour_lien,
+           })
         else:
             doc = frappe.get_doc({
                 "doctype":          "OCR Document",
@@ -654,6 +658,8 @@ def _executer_pipeline_article_job(chemin_tmp, nom_fichier, ext,
                 "extracted_field":  json.dumps(champs_ocr,
                                                ensure_ascii=False, indent=2),
                 "status":           statut,
+                "linked_doctype":   "Item" if code_pour_lien else None,
+                "linked_docname":   code_pour_lien,
             })
             doc.insert(ignore_permissions=True)
             ocr_doc_name = doc.name
