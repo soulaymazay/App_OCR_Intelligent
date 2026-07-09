@@ -1,0 +1,290 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:RESV-.YYYY.MM.DD.-.#####",
+ "creation": "2026-04-06 13:33:26.079458",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "workflow_state",
+  "section_break_utq0",
+  "demandeur",
+  "type_de_reservation",
+  "naming_series",
+  "date_de_creation",
+  "column_break_nwyv",
+  "objet_de_la_mission__motif",
+  "d\u00e9tails_de_la_r\u00e9servation_section",
+  "date_et_heure_de_debut_souhaitee",
+  "la_duree",
+  "priorite",
+  "column_break_apse",
+  "type_de_vehicule_souhaite",
+  "nombre_de_personnes",
+  "bon_de_livraison__reference_bl",
+  "assignation_section",
+  "vehicule_assigne",
+  "date_debut_reelle",
+  "date_fin_reelle",
+  "statut_de_la_reservation",
+  "amended_from",
+  "column_break_uvus",
+  "remarques_du_planificateur"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_utq0",
+   "fieldtype": "Section Break",
+   "label": "Informations de la Demande"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "ID",
+   "no_copy": 1,
+   "options": "RESV-.YYYY.MM.DD.-.#####",
+   "permlevel": 1,
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "demandeur",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Demandeur",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "objet_de_la_mission__motif",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Objet de la mission / Motif",
+   "reqd": 1
+  },
+  {
+   "fieldname": "d\u00e9tails_de_la_r\u00e9servation_section",
+   "fieldtype": "Section Break",
+   "label": "D\u00e9tails de la R\u00e9servation"
+  },
+  {
+   "fieldname": "nombre_de_personnes",
+   "fieldtype": "Int",
+   "label": "Nombre de personnes"
+  },
+  {
+   "fieldname": "assignation_section",
+   "fieldtype": "Section Break",
+   "label": "Assignation"
+  },
+  {
+   "fieldname": "remarques_du_planificateur",
+   "fieldtype": "Text Editor",
+   "label": "Remarques du planificateur",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Reservation Vehicule",
+   "permlevel": 1,
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Workflow State",
+   "no_copy": 1,
+   "options": "Workflow State"
+  },
+  {
+   "default": "Now",
+   "fieldname": "date_de_creation",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "in_list_view": 1,
+   "label": "Date de cr\u00e9ation",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "type_de_reservation",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Type de r\u00e9servation",
+   "options": "Transport de personnes\nLivraison de marchandise\nD\u00e9placement interne\nAutre",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date_et_heure_de_debut_souhaitee",
+   "fieldtype": "Datetime",
+   "label": "Date et Heure de d\u00e9but souhait\u00e9e",
+   "reqd": 1
+  },
+  {
+   "fieldname": "la_duree",
+   "fieldtype": "Duration",
+   "label": "La dur\u00e9e",
+   "reqd": 1
+  },
+  {
+   "fieldname": "type_de_vehicule_souhaite",
+   "fieldtype": "Select",
+   "label": "Type de v\u00e9hicule souhait\u00e9",
+   "options": "Camion semi-remorque\nCamion poid lourd\nVan / Fourgon\nVoiture de service\nFenwick\nAutre",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bon_de_livraison__reference_bl",
+   "fieldtype": "Data",
+   "label": "Bon de livraison / R\u00e9f\u00e9rence BL "
+  },
+  {
+   "fieldname": "priorite",
+   "fieldtype": "Select",
+   "label": "Priorit\u00e9",
+   "options": "Urgente\nMoyenne\nBasse",
+   "reqd": 1
+  },
+  {
+   "fieldname": "vehicule_assigne",
+   "fieldtype": "Link",
+   "label": "V\u00e9hicule assign\u00e9",
+   "link_filters": "[\n    [\"Vehicule\", \"statut\", \"=\", \"Disponible\"]\n]",
+   "options": "Vehicule",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "date_debut_reelle",
+   "fieldtype": "Datetime",
+   "label": "Date d\u00e9but r\u00e9elle",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "date_fin_reelle",
+   "fieldtype": "Datetime",
+   "label": "Date fin r\u00e9elle",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "statut_de_la_reservation",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Statut de la r\u00e9servation",
+   "options": "En attente\nAssign\u00e9e\nEn mission\nTermin\u00e9e\nRefus\u00e9e",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_nwyv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_apse",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_uvus",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_calendar_and_gantt": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-06-24 16:06:45.091438",
+ "modified_by": "Administrator",
+ "module": "Logistique",
+ "name": "Reservation Vehicule",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Demandeur V\u00e9hicule",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Responsable logistique",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Responsable logistique",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Demandeur V\u00e9hicule",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Administrator",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

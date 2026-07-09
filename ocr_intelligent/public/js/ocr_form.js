@@ -540,7 +540,7 @@ const OCRForm = {
                 return frm.set_value(batch_valide);
             })
             .then(() => new Promise(r => frappe.after_ajax(r)))
-            .then(() => OCRForm._creer_ligne_article(frm, montants, vals))
+            .then(() => OCRForm.creer_ligne_article(frm, montants, vals, result))
             .then(() => OCRForm._appliquer_modele_taxes(frm))
             .then(() => new Promise(r => frappe.after_ajax(r)))
             .then(() => OCRForm._forcer_expense_account(frm))
@@ -831,28 +831,87 @@ const OCRForm = {
     },
 
     // ── Créer ligne article ────────────────────────────────
-    _creer_ligne_article(frm, montants, vals) {
+    // ── Créer les lignes articles réelles à partir du tableau OCR ─────
+    creer_ligne_article(frm, montants, vals, result) {
         montants = montants || {};
         vals     = vals     || {};
-        const raw  = montants.net_total || montants.grand_total || 0;
-        const rate = typeof raw === "number" ? raw : OCRForm._convertir_montant(raw);
-        const desc = ("Facture OCR " + (vals.bill_no || frm.doc.bill_no || "") + " " + (vals.supplier || frm.doc.supplier || "")).trim() || "Article OCR";
+        result   = result   || {};
 
-        return frappe.db.exists("Item", "Article OCR").then(exists => {
-            if (!exists) {
-                frm.doc.items = [];
-                frm.refresh_field("items");
-                frappe.show_alert({ message: __("Article 'Article OCR' introuvable. Ajoutez manuellement."), indicator: "orange" }, 6);
-                return;
-            }
-            return frappe.db.exists("UOM", "Unité").then(uom_exists => {
-                const uom = uom_exists ? "Unité" : "Nos";
-                frm.doc.items = [];
-                frm.add_child("items", {
-                    item_code: "Article OCR", item_name: desc, description: desc,
-                    qty: 1, rate, amount: rate, uom, stock_uom: uom,
-                    conversion_factor: 1, stock_qty: 1,
+        const articles = Array.isArray(result.articles) ? result.articles : [];
+
+        if (!articles.length) {
+            const raw  = montants.net_total || montants.grand_total || 0;
+            const rate = typeof raw === "number" ? raw : OCRForm._convertir_montant(raw);
+            const desc = ("Facture OCR " + (vals.bill_no || frm.doc.bill_no || "") + " " +
+                          (vals.supplier || frm.doc.supplier || "")).trim() || "Article OCR";
+
+            return frappe.db.exists("Item", "Article OCR").then(exists => {
+                if (!exists) {
+                    frm.doc.items = [];
+                    frm.refresh_field("items");
+                    frappe.show_alert({ message: __("Aucune ligne d'article détectée et 'Article OCR' introuvable. Ajoutez manuellement."), indicator: "orange" }, 6);
+                    return;
+                }
+                return frappe.db.exists("UOM", "Unité").then(uom_exists => {
+                    const uom = uom_exists ? "Unité" : "Nos";
+                    frm.doc.items = [];
+                    frm.add_child("items", {
+                        item_code: "Article OCR", item_name: desc, description: desc,
+                        qty: 1, rate, amount: rate, uom, stock_uom: uom,
+                        conversion_factor: 1, stock_qty: 1,
+                    });
+                    frm.refresh_field("items");
                 });
+            });
+        }
+
+        frm.doc.items = [];
+
+        return frappe.db.exists("UOM", "Unité").then(uom_exists => {
+            const uom = uom_exists ? "Unité" : "Nos";
+
+            const promesses = articles.map(art => {
+                return frappe.call({
+                    method: "ocr_intelligent.api.ocr_pipeline.rechercher_item_correspondant",
+                    args: { reference: art.reference || "", designation: art.designation || "" },
+                    freeze: false,
+                }).then(r => {
+                    const match = (r && r.message) || {};
+                    const item_code = match.item_code;
+                    const qty  = art.qte || 1;
+                    const rate = art.prix_ht || (art.montant && qty ? art.montant / qty : 0);
+
+                   if (item_code) {
+                        frm.add_child("items", {
+                            item_code,
+                            item_name: art.designation || item_code,
+                            description: (art.designation || item_code) + (art.estime ? " ⚠ Qté/Prix estimés — à vérifier" : ""),
+                            qty, rate, amount: rate * qty,
+                            uom, stock_uom: uom, conversion_factor: 1, stock_qty: qty,
+                        });
+                        if (art.estime) {
+                            frappe.show_alert({
+                                message: __("⚠ Quantité et prix estimés pour '{0}' — merci de vérifier avant validation.", [art.designation || art.reference]),
+                                indicator: "orange"
+                            }, 8);
+                        }
+                    } else {
+                        frm.add_child("items", {
+                            item_code: "Article OCR",
+                            item_name: art.designation || "Article non identifié",
+                            description: (art.reference ? `[${art.reference}] ` : "") + (art.designation || "") + (art.estime ? " ⚠ Qté/Prix estimés — à vérifier" : ""),
+                            qty, rate, amount: rate * qty,
+                            uom, stock_uom: uom, conversion_factor: 1, stock_qty: qty,
+                        });
+                        frappe.show_alert({
+                            message: __("Article '{0}' non trouvé dans le stock — ligne générique créée.", [art.designation || art.reference || "?"]),
+                            indicator: "orange"
+                        }, 6);
+                    }
+                });
+            });
+
+            return Promise.all(promesses).then(() => {
                 frm.refresh_field("items");
             });
         });

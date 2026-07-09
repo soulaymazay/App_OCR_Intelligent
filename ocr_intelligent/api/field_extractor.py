@@ -27,6 +27,7 @@ _PAYMENT_METHODS = {"chèque", "cheque", "check", "traite", "lettre de change", 
 # ════════════════════════════════════════════════════════════════════════════
 
 @frappe.whitelist()
+# api ocr_intelligent.api.field_extractor.match_and_fill(POST) -> dict
 def match_and_fill(ocr_document_name: str, target_doctype: str, target_docname: str = None):
     """
     Endpoint: /api/method/ocr_intelligent.api.field_extractor.match_and_fill
@@ -556,6 +557,7 @@ def diagnostiquer_ocr_document():
 
 
 @frappe.whitelist()
+# api ocr_intelligent.api.field_extractor.tester_pipeline_paiement(POST) -> dict
 def tester_pipeline_paiement(ocr_document_name: str):
     """
     Teste uniquement le moteur payment_doc_extractor sur un OCR Document,

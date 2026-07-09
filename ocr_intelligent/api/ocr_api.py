@@ -3,7 +3,7 @@ API principale - Groupe Bayoudh Metal
 Remplit automatiquement un formulaire depuis le OCR Document
 Compare les champs du formulaire avec les données extraites
 
-CORRECTIONS MAPPING v2 :
+ MAPPING v2 :
   ─ create_purchase_invoice_from_log :
       • Lecture depuis extracted_field (clé singulier, alignée sur field_matcher.py)
         avec fallback sur les clés OCR brutes via _OCR_TO_FRAPPE
@@ -268,6 +268,7 @@ def _get_payable_account(company):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @frappe.whitelist()
+#api ocr_api.create_purchase_invoice_from_log(POST) Crée une Purchase Invoice ERPNext depuis un OCR Log
 def create_purchase_invoice_from_log(log_name: str) -> str:
     """
     Crée une Purchase Invoice ERPNext depuis un OCR Log.
@@ -406,6 +407,7 @@ def create_purchase_invoice_from_log(log_name: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @frappe.whitelist()
+#api ocr_api.create_payment_entry_from_invoice(POST) Crée un Payment Entry ERPNext depuis une Purchase Invoice
 def create_payment_entry_from_invoice(invoice_name: str, log_name: str = None) -> str:
     """
     Crée un Payment Entry depuis une Purchase Invoice.
@@ -553,6 +555,7 @@ def create_payment_entry_from_invoice(invoice_name: str, log_name: str = None) -
 # ══════════════════════════════════════════════════════════════════════════════
 
 @frappe.whitelist()
+#api ocr_api.remplir_formulaire(POST) Remplit un formulaire à partir d'un fichier OCR
 def remplir_formulaire(nom_fichier):
     """
     API appelée quand l'utilisateur clique "Ajouter un document"
@@ -658,6 +661,7 @@ def remplir_formulaire(nom_fichier):
 
 
 @frappe.whitelist()
+#api ocr_api.get_liste_documents_traites(GET) Retourne la liste des 100 derniers OCR Documents traités
 def get_liste_documents_traites():
     """
     Retourne la liste des 100 derniers OCR Documents traités.
@@ -678,6 +682,7 @@ def get_liste_documents_traites():
 
 
 @frappe.whitelist()
+#api ocr_api.get_statistiques(GET) Retourne les statistiques d'utilisation du module OCR
 def get_statistiques():
     """
     Retourne les statistiques d'utilisation du module OCR :
@@ -999,6 +1004,7 @@ def _worker_ocr_background(ocr_document_name):
 
 
 @frappe.whitelist()
+#api ocr_api.get_statut_traitement(GET) Polling : retourne l'état d'avancé du traitement OCR d'un document.
 def get_statut_traitement(ocr_document_name):
     """
     Polling : retourne l'état d'avancé du traitement OCR d'un document.

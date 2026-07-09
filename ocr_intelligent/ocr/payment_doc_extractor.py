@@ -272,7 +272,7 @@ def analyser_document_paiement(
                 f"Document refusé : le document soumis a été identifié comme « {_LABELS_TYPE.get(doc_alt, doc_alt)} ». "
                 f"Le mode de paiement « {_LABELS_TYPE.get(type_force, type_force)} » accepte uniquement les documents de type {_LABELS_TYPE.get(type_force, type_force)}.",
                 errors,
-                doc_type="inconnu",
+                doc_type=doc_alt,
             )
 
     # ── Cas 1a : paiement = "chèque" mais document contient mots exclusifs traite
@@ -314,58 +314,64 @@ def analyser_document_paiement(
             # Si payment_method=chèque mais aucun indicateur chèque détecté →
             # impossible de confirmer : le document est peut-être une traite à OCR bruité
             if type_force == "cheque" and not _contient_cheque_exclusif:
-                return _resultat_echec(
-                    "Document refusé : le mode de paiement sélectionné est « chèque », "
-                    "mais le document soumis ne contient aucun indicateur d'un chèque "
-                    "(la mention « non endossable » est absente ou illisible). "
-                    "Vérifiez que le document est bien un chèque ou améliorez la qualité de l'image.",
-                    errors,
-                    doc_type="inconnu",
-                )
-            # Si payment_method=traite mais aucun indicateur traite détecté →
-            # Essayer quand même d'extraire les champs avant de rejeter (OCR peut être bruité)
-            if type_force == "traite" and not _contient_traite_exclusif:
-                _ocr_log("Traite sans indicateurs : tentative d'extraction des champs en mode relaxé", "warning")
-                # Essayer d'extraire les champs de traite malgré tout
+                _ocr_log("Chèque sans indicateurs : tentative d'extraction des champs en mode relaxé", "warning")
                 try:
+                    # Garde-fou : vérifier d'abord que le document n'est pas plutôt une traite
                     from ocr_intelligent.ocr.traite_extractor import _extraire_champs_traite
-                    champs_test, _, _ = _extraire_champs_traite(texte)
-                    
-                    # Si on a extrait au moins 3 champs significatifs, accepter le document
-                    champs_valides = 0
-                    if champs_test.get("numero_traite"):
-                        champs_valides += 1
-                    if champs_test.get("amount", 0) > 0:
-                        champs_valides += 2  # Le montant compte double
-                    if champs_test.get("date_echeance"):
-                        champs_valides += 1
-                    if champs_test.get("tireur"):
-                        champs_valides += 1
-                    if champs_test.get("tire") or champs_test.get("domiciliation"):
-                        champs_valides += 1
-                    
-                    if champs_valides >= 3:
-                        _ocr_log(f"Traite acceptée malgré absence d'indicateurs : {champs_valides} champs extraits", "info")
-                        # Continuer avec le traitement normal
-                        pass
-                    else:
-                        _ocr_log(f"Traite rejetée : seulement {champs_valides} champs extraits (minimum 3 requis)", "warning")
+                    champs_traite_test, _, _ = _extraire_champs_traite(texte)
+                    signaux_traite = sum([
+                        bool(champs_traite_test.get("numero_traite")),
+                        bool(champs_traite_test.get("tireur")),
+                        bool(champs_traite_test.get("tire")),
+                        bool(champs_traite_test.get("date_echeance")),
+                        bool(champs_traite_test.get("domiciliation")),
+                    ])
+                    if signaux_traite >= 2:
+                        _ocr_log(
+                            f"Chèque rejeté : document ressemble plutôt à une traite "
+                            f"({signaux_traite} signaux traite détectés)", "warning"
+                        )
                         return _resultat_echec(
-                            "Document refusé : le mode de paiement sélectionné est « traite », "
-                            "mais le document soumis ne contient aucun indicateur d'une traite "
-                            "(les mentions « lettre de change », « échéance », « tireur » sont absentes ou illisibles) "
+                            _construire_message_type_invalide("cheque", "traite"),
+                            errors,
+                            doc_type="traite",
+                        )
+
+                    champs_test, incertains_test, _ = _extraire_champs_cheque(texte)
+
+                    champs_valides = 0
+                    if champs_test.get("numero_cheque"):
+                        champs_valides += 2  # spécifique au chèque, compte double
+                    if champs_test.get("amount", 0) > 0:
+                        champs_valides += 1
+                    if champs_test.get("date_cheque") or champs_test.get("cheque_date"):
+                        champs_valides += 1
+                    if champs_test.get("banque"):
+                        champs_valides += 1
+                    if champs_test.get("beneficiaire") or champs_test.get("titulaire_compte"):
+                        champs_valides += 1
+
+                    if champs_valides >= 3:
+                        _ocr_log(f"Chèque accepté malgré absence d'indicateurs : {champs_valides} champs extraits", "info")
+                        # on continue vers le traitement normal
+                    else:
+                        _ocr_log(f"Chèque rejeté : seulement {champs_valides} champs extraits (minimum 3 requis)", "warning")
+                        return _resultat_echec(
+                            "Document refusé : le mode de paiement sélectionné est « chèque », "
+                            "mais le document soumis ne contient aucun indicateur d'un chèque "
+                            "(la mention « non endossable » est absente ou illisible) "
                             "et l'extraction automatique n'a pas pu récupérer suffisamment de champs. "
-                            "Vérifiez que le document est bien une traite ou améliorez la qualité de l'image.",
+                            "Vérifiez que le document est bien un chèque ou améliorez la qualité de l'image.",
                             errors,
                             doc_type="inconnu",
                         )
                 except Exception as e:
-                    _ocr_log(f"Erreur lors de la tentative d'extraction relaxée : {e}", "error")
+                    _ocr_log(f"Erreur lors de la tentative d'extraction relaxée (chèque) : {e}", "error")
                     return _resultat_echec(
-                        "Document refusé : le mode de paiement sélectionné est « traite », "
-                        "mais le document soumis ne contient aucun indicateur d'une traite "
-                        "(les mentions « lettre de change », « échéance », « tireur » sont absentes ou illisibles). "
-                        "Vérifiez que le document est bien une traite ou améliorez la qualité de l'image.",
+                        "Document refusé : le mode de paiement sélectionné est « chèque », "
+                        "mais le document soumis ne contient aucun indicateur d'un chèque "
+                        "(la mention « non endossable » est absente ou illisible). "
+                        "Vérifiez que le document est bien un chèque ou améliorez la qualité de l'image.",
                         errors,
                         doc_type="inconnu",
                     )

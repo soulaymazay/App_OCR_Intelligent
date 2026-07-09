@@ -572,17 +572,15 @@ def _evaluer_qualite(texte, score_ocr) -> bool:
 
 
 def _identifier_type_document(texte) -> tuple[str, float]:
-    """
-    Détecte le type de document de paiement (cheque/traite/inconnu) par scoring
-    de mots-clés pondérés. Retourne (type_str, confiance 0–1).
-    """
     t = texte.lower()
     sc = sum(1 for p in _PATTERNS_CHEQUE if re.search(p, t, re.IGNORECASE))
     st = sum(1 for p in _PATTERNS_TRAITE if re.search(p, t, re.IGNORECASE))
     if sc == 0 and st == 0:
         return "inconnu", 0.0
+    if sc == st:
+        return "inconnu", 0.0   # égalité → ambigu, ne pas trancher arbitrairement
     total = sc + st
-    if sc >= st:
+    if sc > st:
         return "cheque", round(sc / total, 3)
     return "traite", round(st / total, 3)
 

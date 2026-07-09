@@ -82,6 +82,7 @@ def upload_document():
 
 
 @frappe.whitelist(allow_guest=True)
+# api ocr_intelligent.api.upload.upload_document_direct(POST) -> dict
 def upload_document_direct(nom_fichier=None):
     """
     Version simplifiée pour uploader directement un fichier depuis une URL ou chemin local

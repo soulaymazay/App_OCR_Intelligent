@@ -1,0 +1,269 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:immatriculation",
+ "creation": "2026-04-03 18:35:16.344050",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "informations_de_base_section",
+  "immatriculation",
+  "caract\u00e9ristiques_du_v\u00e9hicule_section",
+  "statut",
+  "modele",
+  "marque",
+  "annee_de_fabrication",
+  "photo_du_vehicule",
+  "column_break_lrfv",
+  "type_de_vehicule",
+  "capacite_kg",
+  "nombre_de_places_si_transport_personnes",
+  "numero_de_chassis",
+  "documents_administratifs_avec_pi\u00e8ces_jointes_section",
+  "date_expiration_assurance",
+  "fichier_assurance",
+  "date_expiration_vignette",
+  "fichier_vignette",
+  "column_break_gebn",
+  "date_expiration_visite_technique",
+  "fichier_visite_technique",
+  "carte_grise",
+  "remarques_g\u00e9n\u00e9rales_section",
+  "remarque",
+  "section_break_raxt",
+  "statut_temporaire"
+ ],
+ "fields": [
+  {
+   "fieldname": "informations_de_base_section",
+   "fieldtype": "Section Break",
+   "label": "Informations de Base"
+  },
+  {
+   "fieldname": "immatriculation",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Immatriculation",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "marque",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Marque",
+   "reqd": 1
+  },
+  {
+   "fieldname": "caract\u00e9ristiques_du_v\u00e9hicule_section",
+   "fieldtype": "Section Break",
+   "label": "Caract\u00e9ristiques du V\u00e9hicule"
+  },
+  {
+   "fieldname": "nombre_de_places_si_transport_personnes",
+   "fieldtype": "Int",
+   "label": "Nombre de places (si transport personnes)"
+  },
+  {
+   "fieldname": "documents_administratifs_avec_pi\u00e8ces_jointes_section",
+   "fieldtype": "Section Break",
+   "label": "Documents Administratifs (avec pi\u00e8ces jointes)"
+  },
+  {
+   "fieldname": "date_expiration_assurance",
+   "fieldtype": "Date",
+   "label": "Date expiration Assurance"
+  },
+  {
+   "fieldname": "fichier_assurance",
+   "fieldtype": "Attach",
+   "label": "Fichier Assurance",
+   "options": "Essence\nDiesel\nGaz\n\u00c9lectrique\nHybride"
+  },
+  {
+   "fieldname": "date_expiration_visite_technique",
+   "fieldtype": "Date",
+   "label": "Date expiration Visite Technique"
+  },
+  {
+   "fieldname": "fichier_visite_technique",
+   "fieldtype": "Attach",
+   "label": "Fichier Visite Technique"
+  },
+  {
+   "fieldname": "date_expiration_vignette",
+   "fieldtype": "Date",
+   "label": "Date expiration Vignette"
+  },
+  {
+   "fieldname": "fichier_vignette",
+   "fieldtype": "Attach",
+   "label": "Fichier Vignette"
+  },
+  {
+   "fieldname": "carte_grise",
+   "fieldtype": "Attach",
+   "label": "Carte grise"
+  },
+  {
+   "fieldname": "remarques_g\u00e9n\u00e9rales_section",
+   "fieldtype": "Section Break",
+   "label": "Remarques g\u00e9n\u00e9rales"
+  },
+  {
+   "fieldname": "remarque",
+   "fieldtype": "Text Editor",
+   "label": "Remarque"
+  },
+  {
+   "default": "Disponible",
+   "fieldname": "statut",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Statut",
+   "options": "Disponible\nEn mission\nEn maintenance\nHors service",
+   "permlevel": 1,
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_raxt",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "statut_temporaire",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Statut Temporaire",
+   "options": "Disponible\nR\u00e9serv\u00e9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "type_de_vehicule",
+   "fieldtype": "Select",
+   "label": "Type de v\u00e9hicule",
+   "options": "Camion semi-remorque\nCamion poid lourd\nVan / Fourgon\nVoiture de service\nFenwick\nAutre"
+  },
+  {
+   "fieldname": "modele",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Mod\u00e8le",
+   "reqd": 1
+  },
+  {
+   "fieldname": "annee_de_fabrication",
+   "fieldtype": "Int",
+   "label": "Ann\u00e9e de fabrication",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "capacite_kg",
+   "fieldtype": "Float",
+   "label": "Capacit\u00e9 (kg)"
+  },
+  {
+   "fieldname": "numero_de_chassis",
+   "fieldtype": "Data",
+   "label": "Num\u00e9ro de ch\u00e2ssis"
+  },
+  {
+   "fieldname": "photo_du_vehicule",
+   "fieldtype": "Attach",
+   "label": "Photo du v\u00e9hicule"
+  },
+  {
+   "fieldname": "column_break_lrfv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_gebn",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-24 17:11:04.777149",
+ "modified_by": "Administrator",
+ "module": "Logistique",
+ "name": "Vehicule",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Responsable logistique",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Demandeur V\u00e9hicule",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Responsable logistique",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

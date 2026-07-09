@@ -358,3 +358,69 @@ def sync_statut_bom_dans_ocr(doc, method=None):
             f"[OCR] sync BOM: {updated} doc(s) → '{new_statut}' "
             f"via workflow_state='{workflow_state}' / docstatus={doc.docstatus}"
         )        
+
+# ══════════════════════════════════════════════════════════════════════
+# SYNC : Payment Entry → OCR Document
+# Appelée par hooks.py on_update / on_submit / on_cancel sur Payment Entry
+# ══════════════════════════════════════════════════════════════════════
+
+def sync_statut_depuis_payment_entry(doc, method=None):
+    """
+    Sync déclenchée par on_submit, on_cancel, ou on_update (workflow)
+    sur Payment Entry. Lit docstatus ET workflow_state.
+    """
+    WORKFLOW_TO_STATUT = {
+        "En Attente":  "En attente",
+        "Pending":     "En attente",
+        "Approved":    "Validé",
+        "Approuvé":    "Validé",
+        "Validé":      "Validé",
+        "Rejected":    "Rejeté",
+        "Rejeté":      "Rejeté",
+        "Cancelled":   "Rejeté",
+        "Annulé":      "Rejeté",
+    }
+    DOCSTATUS_TO_STATUT = {
+        0: "En attente",
+        1: "Validé",
+        2: "Rejeté",
+    }
+
+    workflow_state = doc.get("workflow_state") or ""
+    new_statut = (
+        WORKFLOW_TO_STATUT.get(workflow_state)
+        or DOCSTATUS_TO_STATUT.get(doc.docstatus)
+    )
+
+    if not new_statut:
+        return
+
+    ocr_docs = frappe.get_all(
+        "OCR Document",
+        filters={"linked_docname": doc.name, "linked_doctype": doc.doctype},
+        fields=["name", "status"],
+    )
+
+    if not ocr_docs and getattr(doc, "reference_no", None):
+        ocr_docs = frappe.get_all(
+            "OCR Document",
+            filters=[["extracted_field", "like", f"%{doc.reference_no}%"]],
+            fields=["name", "status"],
+            limit=5,
+        )
+
+    updated = 0
+    for ocr in ocr_docs:
+        if ocr.status != new_statut:
+            frappe.db.set_value(
+                "OCR Document", ocr.name, "status", new_statut,
+                update_modified=False
+            )
+            updated += 1
+
+    if updated:
+        frappe.db.commit()
+        frappe.logger().info(
+            f"[OCR] sync Payment Entry: {updated} doc(s) → '{new_statut}' "
+            f"via workflow_state='{workflow_state}' / docstatus={doc.docstatus}"
+        )        

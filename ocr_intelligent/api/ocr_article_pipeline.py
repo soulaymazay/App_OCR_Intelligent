@@ -27,6 +27,7 @@ import numpy as np
 import pytesseract
 from PIL import Image as PILImage
 from werkzeug.utils import secure_filename
+import re as _re2
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -185,7 +186,17 @@ _PATTERNS_REJET_IMMEDIAT = [p for p in [
     _re.compile(r'\bdevis\s+n[o°]?\b',       _re.IGNORECASE),
     _re.compile(r'\bproforma\s+invoice\b',    _re.IGNORECASE),
     _re.compile(r'\bfacture\s+proforma\b',    _re.IGNORECASE),
-]]
+
+    # Nomenclature / BOM
+    _re.compile(r'\bnomenclature\b',              _re.IGNORECASE),
+    _re.compile(r'\bbill\s+of\s+materials\b',      _re.IGNORECASE),
+    _re.compile(r'\bBOM\b'),                        # sensible à la casse (évite faux positifs)
+    _re.compile(r'\bliste\s+des\s+composants\b',   _re.IGNORECASE),
+    _re.compile(r'\bliste\s+de\s+nomenclature\b',  _re.IGNORECASE),
+    _re.compile(r'\bcomposants?\s+n[o°]\b',        _re.IGNORECASE),
+
+]
+]
 
 # Libellé humain correspondant à chaque pattern (même ordre)
 _LABELS_REJET_IMMEDIAT = [
@@ -205,6 +216,8 @@ _LABELS_REJET_IMMEDIAT = [
     "bon de livraison", "bon de commande", "delivery note", "purchase order",
     "BL N°", "BC N°",
     "devis N°", "proforma invoice", "facture proforma",
+    "nomenclature", "bill of materials", "BOM",
+    "liste des composants", "liste de nomenclature", "composant N°",
 ]
 
 # ── Niveau 2 : Signaux confirmant une VRAIE fiche article/produit ─────
@@ -221,13 +234,46 @@ _SIGNAUX_FICHE_ARTICLE = [
     "part no", "part number", "sku", "ean",
     "udm", "uom",
 ]
+_LABELS_REJETES_ARTICLE = {
+    "traite": "Traite (Lettre de Change)", "cheque": "Chèque",
+    "facture": "Facture", "bon_livraison": "Bon de Livraison",
+    "bon_commande": "Bon de Commande", "devis": "Devis / Proforma",
+    "nomenclature": "Nomenclature (BOM)", "inconnu": "Document inconnu",
+}
 
+def _titre_rejet_article(cat):
+    return "Document refusé — {}".format(_LABELS_REJETES_ARTICLE.get(cat, "Document refusé"))
 
+def _msg_rejet_article(cat):
+    label = _LABELS_REJETES_ARTICLE.get(cat, cat)
+    return ("Type de document détecté : {0}\n\nCe module accepte uniquement les fiches "
+             "techniques produit.\nVeuillez soumettre la fiche article correspondante."
+            ).format(label)
+
+def _categorie_depuis_patterns(patterns_trouves):
+    """Déduit la catégorie (traite/cheque/facture/...) à partir des libellés détectés."""
+    texte = " ".join(patterns_trouves).lower()
+    if any(m in texte for m in ("traite", "tireur", "tiré", "échéance", "aval", "acceptation")):
+        return "traite"
+    if "chèque" in texte or "cheque" in texte:
+        return "cheque"
+    if "facture" in texte or "invoice" in texte or "ttc" in texte:
+        return "facture"
+    if "livraison" in texte or "delivery" in texte or "bl n" in texte:
+        return "bon_livraison"
+    if "commande" in texte or "purchase order" in texte or "bc n" in texte:
+        return "bon_commande"
+    if "devis" in texte or "proforma" in texte:
+        return "devis"
+    if "nomenclature" in texte or "bom" in texte or "composant" in texte:
+        return "nomenclature"
+    return "inconnu"
 # ──────────────────────────────────────────────────────────────────────
 # ENDPOINT 1 : Lancement async
 # ──────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
+#api ocr_article_pipeline.pipeline_article(POST) Reçoit fichier → sauvegarde temp → frappe.enqueue job async (OCR + extraction Article)
 def pipeline_article(file_url="", source_doctype="Item"):
     """
     Lance le pipeline OCR Article de façon asynchrone.
@@ -319,6 +365,7 @@ def pipeline_article(file_url="", source_doctype="Item"):
 # ──────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
+#api ocr_article_pipeline.get_ocr_article_statut(GET) Polling cache Redis (en_cours / termine / erreur)
 def get_ocr_article_statut(job_id):
     """
     Retourne le statut du job OCR Article.
@@ -351,6 +398,36 @@ def get_ocr_article_statut(job_id):
     return {"status": "inconnu"}
 
 
+
+_PATTERNS_CHAMPS_ARTICLE = {
+    "item_code":     [r'code\s+article\s*[:=]?\s*([A-Za-z0-9\-_/]+)', r'\bpart\s*no\.?\s*[:=]?\s*([A-Za-z0-9\-_/]+)', r'\bsku\s*[:=]?\s*([A-Za-z0-9\-_/]+)'],
+    "item_name":     [r'd[ée]signation\s*[:=]?\s*([^\n\r]{3,80})', r'nom\s+(?:de\s+l[’\']?)?article\s*[:=]?\s*([^\n\r]{3,80})'],
+    "item_group":    [r"groupe\s+d[’\']?article\s*[:=]?\s*([^\n\r]{2,50})", r'item\s+group\s*[:=]?\s*([^\n\r]{2,50})'],
+    "stock_uom":     [r'unit[ée]\s+de\s+mesure\s*(?:par\s+d[ée]faut)?\s*[:=]?\s*([A-Za-z]{1,10})', r'\budm\s*[:=]?\s*([A-Za-z]{1,10})', r'\buom\s*[:=]?\s*([A-Za-z]{1,10})'],
+    "standard_rate": [r'prix\s+(?:de\s+)?vente\s+ht\s*[:=]?\s*([\d\s,.]+)'],
+    "last_purchase_rate": [r'prix\s+achat\s+ht\s*[:=]?\s*([\d\s,.]+)'],
+    "description":   [r'caract[ée]ristiques?\s*[:=]?\s*([^\n\r]{5,200})', r'sp[ée]cifications?\s*[:=]?\s*([^\n\r]{5,200})'],
+    "barcode":       [r'\bean\s*[:=]?\s*(\d{8,14})'],
+}
+
+def _extraction_basique_article(texte_brut):
+    """
+    Extracteur de secours (regex) — à utiliser tant que le vrai
+    article_extractor.py (spécifique au projet) n'est pas disponible.
+    Retourne (champs, confiances).
+    """
+    champs = {}
+    confiances = {}
+    for champ, patterns in _PATTERNS_CHAMPS_ARTICLE.items():
+        for pat in patterns:
+            m = _re2.search(pat, texte_brut, _re2.IGNORECASE)
+            if m:
+                valeur = m.group(1).strip()
+                if valeur:
+                    champs[champ] = valeur
+                    confiances[champ] = 60  # confiance modérée, extraction regex générique
+                    break
+    return champs, confiances
 # ──────────────────────────────────────────────────────────────────────
 # JOB ASYNCHRONE PRINCIPAL
 # ──────────────────────────────────────────────────────────────────────
@@ -361,27 +438,24 @@ def _executer_pipeline_article_job(chemin_tmp, nom_fichier, ext,
         # ── Étape 0 : Rejet rapide sur le nom de fichier ─────────────
         # Évite de lancer l'OCR (60-120s) sur un document évidemment rejeté
         nom_lower = nom_fichier.lower()
-        _MOTS_REJET_NOM = [
-            "traite", "cheque", "chèque", "lettre_change", "lettre-change",
-            "bill_exchange", "lc_", "_lc_", "billet", "effet",
-        ]
-        for mot in _MOTS_REJET_NOM:
+        _MOTS_REJET_NOM_CATEGORIE = {
+            "traite": "traite", "lettre_change": "traite", "lettre-change": "traite",
+            "bill_exchange": "traite", "lc_": "traite", "_lc_": "traite",
+            "billet": "traite", "effet": "traite",
+            "cheque": "cheque", "chèque": "cheque",
+            "nomenclature": "nomenclature", "bom_": "nomenclature",
+            "_bom": "nomenclature", "liste_composants": "nomenclature",
+            "liste_matieres": "nomenclature",
+        }
+        for mot, categorie in _MOTS_REJET_NOM_CATEGORIE.items():
             if mot in nom_lower:
                 _stocker_resultat(job_token, {
                     "success":       False,
-                    "type_document": "non_article",
-                    "erreur": (
-                        f"Ce document ('{nom_fichier}') n'est pas une fiche article.\n"
-                        "Le nom du fichier indique un document financier (traite/chèque).\n\n"
-                        "Le module Article accepte uniquement :\n"
-                        "  • Fiches techniques produit\n"
-                        "  • Catalogues fournisseur\n"
-                        "  • Étiquettes / fiches article\n\n"
-                        "Pour une traite → module Paiements\n"
-                        "Pour un chèque → module Paiements"
-                    ),
+                    "type_document": categorie,
+                    "titre":         _titre_rejet_article(categorie),
+                    "erreur":        _msg_rejet_article(categorie),
                 })
-                return  
+                return
          # ── Étape 1 : OCR ou Excel ───────────────────────────────────
         if ext == ".xlsx":
             from ocr_intelligent.ocr.excel_article_parser import extraire_article_depuis_excel
@@ -399,89 +473,134 @@ def _executer_pipeline_article_job(chemin_tmp, nom_fichier, ext,
             nb_pages   = 1
             methode    = "excel_direct"
 
-        else:
-            from ocr_intelligent.ocr.ocr_engine import get_engine
-            engine = get_engine()
+            # ── Construire un texte plat à partir de TOUTES les cellules ──
+            # (pas seulement des champs déjà mappés) pour pouvoir appliquer
+            # les mêmes contrôles de rejet que le PDF/image.
             try:
-                res_ocr = engine.extraire_texte(chemin_tmp)
-            except Exception as e:
-                frappe.log_error(frappe.get_traceback(), "OCR Article Pipeline")
-                _stocker_erreur(job_token, f"Erreur OCR : {e}")
-                return
+                import openpyxl
+                wb = openpyxl.load_workbook(chemin_tmp, data_only=True, read_only=True)
+                cellules = []
+                for ws in wb.worksheets:
+                    for row in ws.iter_rows(values_only=True):
+                        for cell in row:
+                            if cell is not None:
+                                cellules.append(str(cell))
+                texte_excel_brut = " ".join(cellules)
+            except Exception:
+                texte_excel_brut = " ".join(str(v) for v in champs_ocr.values())
 
-            texte_brut = res_ocr.get("texte", "")
-            score      = res_ocr.get("score_confiance", 0)
-            nb_pages   = res_ocr.get("nombre_pages", 1)
-            methode    = res_ocr.get("methode", "—")
+            texte_lower = texte_excel_brut.lower()
 
-            mots = [m for m in (texte_brut or "").split() if len(m) > 1]
-            if len(mots) < 2:
+            # ── Niveau 1 : Rejet immédiat inconditionnel (mêmes patterns que PDF) ──
+            patterns_trouves = [
+                _LABELS_REJET_IMMEDIAT[i]
+                for i, p in enumerate(_PATTERNS_REJET_IMMEDIAT)
+                if p.search(texte_excel_brut)
+            ]
+            if patterns_trouves:
+                categorie = _categorie_depuis_patterns(patterns_trouves) # renvoie déjà un des labels ci-dessus si on l'aligne
                 _stocker_resultat(job_token, {
-                    "success": False,
-                    "score_confiance": score,
-                    "erreur": (
-                        f"Aucun texte détecté (score OCR {score}%). "
-                        "Utilisez une image nette ≥ 300 DPI."
-                    )
+                    "success":       False,
+                    "type_document": categorie,
+                    "titre":         _titre_rejet_article(categorie),
+                    "erreur":        _msg_rejet_article(categorie),
                 })
                 return
 
-            if not any(s in texte_brut.lower() for s in _SIGNAUX_FICHE_ARTICLE + [
-                "article", "produit", "product", "référence", "reference",
-                "désignation", "designation",
-            ]):
-                texte_p2 = _ocr_enhanced(chemin_tmp, ext)
-                if texte_p2 and any(s in texte_p2.lower() for s in _SIGNAUX_FICHE_ARTICLE + [
-                    "article", "produit", "product", "référence", "reference",
-                ]):
-                    texte_brut = texte_p2
-                    score      = max(score, 55)
+            # ── Niveau 1.5 : Détection structurelle BOM ──
+            _MOTS_BOM_STRUCTURE = [
+                "repère", "repere", "poste n", "indice", "plan n°", "plan no",
+                "ensemble", "sous-ensemble", "sous ensemble", "matière première",
+                "qté", "quantité unitaire", "niveau", "code article parent",
+                "article parent", "composé de", "entre dans la composition",
+            ]
+            nb_signaux_bom = sum(1 for m in _MOTS_BOM_STRUCTURE if m in texte_lower)
 
-            from ocr_intelligent.ocr.article_extractor import extraire_champs_article
-            resultat   = extraire_champs_article(texte_brut)
-            type_doc   = resultat["type_document"]
-            champs_ocr = resultat["champs"]
-            confiances = resultat["confiances"]
+            if nb_signaux_bom >= 2:
+                _stocker_resultat(job_token, {
+                    "success":       False,
+                    "type_document": "nomenclature",
+                    "titre":         _titre_rejet_article("nomenclature"),
+                    "erreur":        _msg_rejet_article("nomenclature"),
+                })
+                return
+        else:
+            from ocr_intelligent.ocr.ocr_engine import get_engine
 
+            moteur    = get_engine()
+            resultat_ocr = moteur.extraire_texte(chemin_tmp)
+
+            texte_brut = resultat_ocr.get("texte", "") or ""
+            score      = resultat_ocr.get("score_confiance", 0)
+            methode    = resultat_ocr.get("moteur", "inconnu")
+            nb_pages   = 1
             texte_lower = texte_brut.lower()
 
-            # ── Niveau 1 : Rejet immédiat incondititionnel ────────────
-            # On cherche les patterns de rejet dans le texte OCR brut
+            if not texte_brut.strip():
+                _stocker_resultat(job_token, {
+                    "success":       False,
+                    "type_document": "inconnu",
+                    "titre":         _titre_rejet_article("inconnu"),
+                    "erreur": (
+                        "Aucun texte n'a pu être extrait du document.\n"
+                        "Vérifiez que le fichier est lisible (image nette, PDF non corrompu)."
+                    ),
+                })
+                return
+
+            # ── Niveau 1 : Rejet immédiat inconditionnel ──
             patterns_trouves = [
                 _LABELS_REJET_IMMEDIAT[i]
                 for i, p in enumerate(_PATTERNS_REJET_IMMEDIAT)
                 if p.search(texte_brut)
             ]
             if patterns_trouves:
+                categorie = _categorie_depuis_patterns(patterns_trouves)
                 _stocker_resultat(job_token, {
                     "success":       False,
-                    "type_document": "non_article",
-                    "erreur": (
-                        "Ce document n'est pas une fiche article.\n"
-                        "Indicateurs détectés : " + ", ".join(patterns_trouves[:4]) + ".\n\n"
-                        "Le module Article accepte uniquement :\n"
-                        "  • Fiches techniques produit\n"
-                        "  • Catalogues fournisseur\n"
-                        "  • Étiquettes / fiches article\n\n"
-                        "Pour une facture → module Achats\n"
-                        "Pour un chèque / traite → module Paiements\n"
-                        "Pour un bon de livraison → module Stock"
-                    ),
+                    "type_document": categorie,
+                    "titre":         _titre_rejet_article(categorie),
+                    "erreur":        _msg_rejet_article(categorie),
                 })
                 return
 
-            # ── Niveau 2 : Confirmation — doit contenir au moins 1 signal fiche article ──
-            signaux_article = [s for s in _SIGNAUX_FICHE_ARTICLE if s in texte_lower]
+            # ── Niveau 1.5 : Détection structurelle BOM ──
+            _MOTS_BOM_STRUCTURE = [
+                "repère", "repere", "poste n", "indice", "plan n°", "plan no",
+                "ensemble", "sous-ensemble", "sous ensemble", "matière première",
+                "qté", "quantité unitaire", "niveau", "code article parent",
+                "article parent", "composé de", "entre dans la composition",
+            ]
+            nb_signaux_bom = sum(1 for m in _MOTS_BOM_STRUCTURE if m in texte_lower)
+            if nb_signaux_bom >= 2:
+                _stocker_resultat(job_token, {
+                    "success":       False,
+                    "type_document": "nomenclature",
+                    "titre":         _titre_rejet_article("nomenclature"),
+                    "erreur":        _msg_rejet_article("nomenclature"),
+                })
+                return
 
-            if type_doc == "inconnu" and not signaux_article:
+            # ── Extraction des champs article ──
+            try:
+                from ocr_intelligent.ocr.article_extractor import extraire_champs_article
+                resultat_extraction = extraire_champs_article(texte_brut)
+                champs_ocr = resultat_extraction.get("champs", {})
+                confiances = resultat_extraction.get("confiances", {})
+            except ImportError:
+                # Extracteur dédié introuvable → secours regex générique
+                champs_ocr, confiances = _extraction_basique_article(texte_brut)
+
+            # ── Niveau 2 : Confirmation — au moins 1 signal fiche article ──
+            signaux_article = [s for s in _SIGNAUX_FICHE_ARTICLE if s in texte_lower]
+            type_doc = "fiche_article" if (signaux_article or champs_ocr) else "inconnu"
+
+            if type_doc == "inconnu":
                 _stocker_resultat(job_token, {
                     "success":       False,
                     "type_document": "inconnu",
-                    "erreur": (
-                        "Document non reconnu comme fiche article/produit.\n"
-                        "Aucun indicateur trouvé (Fiche technique, Code article, Groupe d'article, UDM…).\n"
-                        "Veuillez soumettre une fiche technique produit."
-                    ),
+                    "titre":         _titre_rejet_article("inconnu"),
+                    "erreur":        _msg_rejet_article("inconnu"),
                 })
                 return
         # ── Étape 5 : Mapping vers fieldnames ERPNext ─────────────────

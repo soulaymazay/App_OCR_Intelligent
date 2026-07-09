@@ -110,6 +110,7 @@ def enregistrer_document_module_dans_ocr(doc, method):
     pass
 
 @frappe.whitelist()
+# api ocr_intelligent.api.auto_create_document.attacher_copie_originale(POST) -> dict
 def attacher_copie_originale(doctype, docname, file_url):
     """API
     Attache un fichier existant à un document ERPNext.

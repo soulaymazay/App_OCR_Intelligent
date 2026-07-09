@@ -52,6 +52,7 @@ def get_current_user():
 
 
 @frappe.whitelist(allow_guest=True)
+# api ocr_intelligent.api.protected.logout(POST) -> dict
 def logout():
     """
     Termine la session Frappe courante.

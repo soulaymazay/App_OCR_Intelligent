@@ -1,0 +1,108 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-04-16 15:22:51.093149",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_jkpk",
+  "vehicule",
+  "statut",
+  "date_de_debut",
+  "date_de_fin",
+  "reference",
+  "type_de_reference",
+  "remarques",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_jkpk",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "statut",
+   "fieldtype": "Select",
+   "label": "Statut",
+   "options": "Disponible\nEn mission\nEn maintenance\nHors service",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date_de_fin",
+   "fieldtype": "Datetime",
+   "label": "Date de fin",
+   "reqd": 1
+  },
+  {
+   "fieldname": "remarques",
+   "fieldtype": "Text Editor",
+   "label": "Remarques"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Etat Vehicule",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "vehicule",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "V\u00e9hicule",
+   "options": "Vehicule",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date_de_debut",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Date de d\u00e9but",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reference",
+   "fieldtype": "Link",
+   "label": "R\u00e9f\u00e9rence",
+   "options": "Reservation Vehicule"
+  },
+  {
+   "fieldname": "type_de_reference",
+   "fieldtype": "Select",
+   "label": "Type de r\u00e9f\u00e9rence",
+   "options": "Reservation Vehicule\nMaintenance Vehicule\nAutre"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-04-28 16:26:55.113052",
+ "modified_by": "Administrator",
+ "module": "Logistique",
+ "name": "Etat Vehicule",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

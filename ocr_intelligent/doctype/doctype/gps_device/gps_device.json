@@ -1,0 +1,62 @@
+{
+ "doctype": "DocType",
+ "name": "GPS Device",
+ "module": "Logistique",
+ "autoname": "field:device_id",
+ "fields": [
+  {
+   "fieldname": "device_id",
+   "label": "ID Appareil",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "device_name",
+   "label": "Nom Appareil",
+   "fieldtype": "Data",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "vehicule",
+   "label": "Véhicule associé",
+   "fieldtype": "Link",
+   "options": "Vehicule",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "provider_type",
+   "label": "Type Provider",
+   "fieldtype": "Select",
+   "options": "Simulation\nHTTP\nTeltonika\nTraccar\nGT06\nMQTT\nCustom",
+   "default": "Simulation"
+  },
+  {
+   "fieldname": "api_key",
+   "label": "API Key",
+   "fieldtype": "Password"
+  },
+  {
+   "fieldname": "is_active",
+   "label": "Actif",
+   "fieldtype": "Check",
+   "default": 1
+  },
+  {
+   "fieldname": "last_ping",
+   "label": "Dernier ping",
+   "fieldtype": "Datetime"
+  },
+  {
+   "fieldname": "connection_status",
+   "label": "Statut connexion",
+   "fieldtype": "Select",
+   "options": "Connected\nDisconnected\nUnknown",
+   "default": "Unknown"
+  }
+ ],
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1}
+ ]
+}

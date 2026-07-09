@@ -1,0 +1,102 @@
+{
+ "doctype": "DocType",
+ "name": "Vehicle GPS History",
+ "module": "Logistique",
+ "autoname": "GPS-HIS-.YYYY.MM.DD.-.#####",
+ "fields": [
+  {
+   "fieldname": "vehicule",
+   "label": "Véhicule",
+   "fieldtype": "Link",
+   "options": "Vehicule",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "horodatage",
+   "label": "Horodatage",
+   "fieldtype": "Datetime",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "type_evenement",
+   "label": "Type Événement",
+   "fieldtype": "Select",
+   "options": "Position\nDemarrage\nArret\nRalenti\nExces de vitesse\nEntree zone\nSortie zone",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_coordonnees",
+   "label": "Coordonnées GPS",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "latitude",
+   "label": "Latitude",
+   "fieldtype": "Float",
+   "precision": 6,
+   "reqd": 1
+  },
+  {
+   "fieldname": "longitude",
+   "label": "Longitude",
+   "fieldtype": "Float",
+   "precision": 6,
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "altitude",
+   "label": "Altitude (m)",
+   "fieldtype": "Float"
+  },
+  {
+   "fieldname": "section_telemetrie",
+   "label": "Télémétrie",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "vitesse",
+   "label": "Vitesse (km/h)",
+   "fieldtype": "Float"
+  },
+  {
+   "fieldname": "direction",
+   "label": "Direction (degrés)",
+   "fieldtype": "Float"
+  },
+  {
+   "fieldname": "col_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contact_allumage",
+   "label": "Contact / Allumage",
+   "fieldtype": "Check"
+  },
+  {
+   "fieldname": "distance_depuis_point_precedent",
+   "label": "Distance depuis point précédent (m)",
+   "fieldtype": "Float"
+  },
+  {
+   "fieldname": "est_simule",
+   "label": "Donnée simulée",
+   "fieldtype": "Check"
+  }
+ ],
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1},
+  {"role": "Administrator", "read": 1}
+ ]
+}

@@ -1,0 +1,48 @@
+{
+ "doctype": "DocType",
+ "name": "AI Prediction Log",
+ "module": "Logistique",
+ "autoname": "AI-LOG-.YYYY.-.#####",
+ "fields": [
+  {
+   "fieldname": "vehicle",
+   "label": "Véhicule",
+   "fieldtype": "Link",
+   "options": "Vehicule",
+   "reqd": 1
+  },
+  {
+   "fieldname": "risk_score",
+   "label": "Score Risque",
+   "fieldtype": "Float"
+  },
+  {
+   "fieldname": "risk_level",
+   "label": "Niveau Risque",
+   "fieldtype": "Select",
+   "options": "Low\nMedium\nHigh\nCritical"
+  },
+  {
+   "fieldname": "recommended_action",
+   "label": "Action Recommandée",
+   "fieldtype": "Text"
+  },
+  {
+   "fieldname": "prediction_date",
+   "label": "Date Prédiction",
+   "fieldtype": "Date"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "Fleet Manager",
+   "read": 1
+  }
+ ]
+}

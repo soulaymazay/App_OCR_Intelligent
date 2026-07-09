@@ -1,0 +1,179 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:MAINT-.YYYY.MM.DD.-.#####",
+ "creation": "2026-04-06 15:16:12.880529",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_ixad",
+  "informations_g\u00e9n\u00e9rales_column",
+  "naming_series",
+  "vehicule",
+  "type_de_maintenance",
+  "column_break_xopz",
+  "date_de_debut",
+  "date_de_fin_prevue",
+  "d\u00e9tails_section",
+  "description_du_probleme__travaux",
+  "column_break_ukqm",
+  "cout_estime",
+  "cout_reel",
+  "pieces_changees",
+  "fichiers__factures",
+  "statut_section",
+  "statut",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_ixad",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "informations_g\u00e9n\u00e9rales_column",
+   "fieldtype": "Column Break",
+   "label": "Informations G\u00e9n\u00e9rales"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "MAINT-.YYYY.MM.DD.-.#####",
+   "read_only": 1
+  },
+  {
+   "fieldname": "type_de_maintenance",
+   "fieldtype": "Select",
+   "label": "Type de maintenance",
+   "options": "Pr\u00e9ventive\nCorrective / R\u00e9paration\nVidange et filtres\nChangement de pneus\nContr\u00f4le technique\nAutre"
+  },
+  {
+   "fieldname": "d\u00e9tails_section",
+   "fieldtype": "Section Break",
+   "label": "D\u00e9tails"
+  },
+  {
+   "fieldname": "fichiers__factures",
+   "fieldtype": "Attach",
+   "label": "Fichiers / Factures"
+  },
+  {
+   "fieldname": "statut_section",
+   "fieldtype": "Section Break",
+   "label": "Statut"
+  },
+  {
+   "default": "Planifi\u00e9e",
+   "fieldname": "statut",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Statut",
+   "options": "Planifi\u00e9e\nEn cours\nTermin\u00e9e\nAnnul\u00e9e"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Maintenance Vehicule",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "vehicule",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "V\u00e9hicule",
+   "link_filters": "[\n    [\"Vehicule\", \"statut\", \"=\", \"Disponible\"]\n]",
+   "no_copy": 1,
+   "options": "Vehicule",
+   "print_hide": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "date_de_debut",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date de d\u00e9but ",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date_de_fin_prevue",
+   "fieldtype": "Date",
+   "label": "Date de fin pr\u00e9vue "
+  },
+  {
+   "fieldname": "description_du_probleme__travaux",
+   "fieldtype": "Text Editor",
+   "label": "Description du probl\u00e8me / Travaux"
+  },
+  {
+   "fieldname": "cout_estime",
+   "fieldtype": "Currency",
+   "label": "Co\u00fbt estim\u00e9"
+  },
+  {
+   "fieldname": "cout_reel",
+   "fieldtype": "Currency",
+   "label": "Co\u00fbt r\u00e9el"
+  },
+  {
+   "fieldname": "pieces_changees",
+   "fieldtype": "Small Text",
+   "label": "Pi\u00e8ces chang\u00e9es "
+  },
+  {
+   "fieldname": "column_break_xopz",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ukqm",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-06-24 17:16:37.512581",
+ "modified_by": "Administrator",
+ "module": "Logistique",
+ "name": "Maintenance Vehicule",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Responsable logistique",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

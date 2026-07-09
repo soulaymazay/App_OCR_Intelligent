@@ -1,0 +1,192 @@
+{
+ "doctype": "DocType",
+ "name": "Fleet Vehicle Live",
+ "module": "Logistique",
+ "autoname": "field:vehicule",
+ "fields": [
+  {
+   "fieldname": "vehicule",
+   "label": "Véhicule",
+   "fieldtype": "Link",
+   "options": "Vehicule",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "immatriculation",
+   "label": "Immatriculation",
+   "fieldtype": "Data",
+   "fetch_from": "vehicule.immatriculation",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "conducteur",
+   "label": "Conducteur (Assigné)",
+   "fieldtype": "Link",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "statut_live",
+   "label": "Statut Live",
+   "fieldtype": "Select",
+   "options": "Hors ligne\nEn ligne\nEn mouvement\nRalenti\nGare\nMaintenance\nUrgence",
+   "default": "Hors ligne",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_position",
+   "label": "Position GPS",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "latitude",
+   "label": "Latitude",
+   "fieldtype": "Float",
+   "precision": 6
+  },
+  {
+   "fieldname": "longitude",
+   "label": "Longitude",
+   "fieldtype": "Float",
+   "precision": 6
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "vitesse",
+   "label": "Vitesse (km/h)",
+   "fieldtype": "Float"
+  },
+  {
+   "fieldname": "direction",
+   "label": "Direction (degrés)",
+   "fieldtype": "Float"
+  },
+  {
+   "fieldname": "altitude",
+   "label": "Altitude (m)",
+   "fieldtype": "Float"
+  },
+  {
+   "fieldname": "section_appareil",
+   "label": "Appareil GPS",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "appareil_gps",
+   "label": "Appareil GPS",
+   "fieldtype": "Link",
+   "options": "GPS Device"
+  },
+  {
+   "fieldname": "contact_allumage",
+   "label": "Contact / Allumage",
+   "fieldtype": "Check"
+  },
+  {
+   "fieldname": "col_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "niveau_batterie",
+   "label": "Niveau Batterie (%)",
+   "fieldtype": "Int"
+  },
+  {
+   "fieldname": "signal_gsm",
+   "label": "Signal GSM",
+   "fieldtype": "Int"
+  },
+  {
+   "fieldname": "section_activite",
+   "label": "Activité",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "derniere_mise_a_jour",
+   "label": "Dernière Mise à Jour",
+   "fieldtype": "Datetime"
+  },
+  {
+   "fieldname": "derniere_adresse",
+   "label": "Dernière Adresse Connue",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "col_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "distance_totale_aujourd_hui",
+   "label": "Distance Aujourd'hui (km)",
+   "fieldtype": "Float"
+  },
+  {
+   "fieldname": "temps_ralenti_aujourd_hui",
+   "label": "Temps Ralenti Aujourd'hui (min)",
+   "fieldtype": "Int"
+  },
+  {
+   "fieldname": "section_stats_avancees",
+   "label": "Statistiques Avancées",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "score_efficacite",
+   "label": "Score d'Efficacité (%)",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "anomalies_detectees",
+   "label": "Anomalies Détectées",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mode_economie_actif",
+   "label": "Mode Économie Activé",
+   "fieldtype": "Check"
+  },
+  {
+   "fieldname": "col_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "consommation_estimee_kmh",
+   "label": "Consommation Estimée (L/100km)",
+   "fieldtype": "Float",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes_operationnelles",
+   "label": "Notes Opérationnelles",
+   "fieldtype": "Text"
+  },
+  {
+   "fieldname": "simulation_active",
+   "label": "Simulation Active",
+   "fieldtype": "Check",
+   "default": 0
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "Administrator",
+   "read": 1,
+   "write": 1
+  }
+ ]
+}

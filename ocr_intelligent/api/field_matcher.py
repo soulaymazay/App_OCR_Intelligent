@@ -158,6 +158,8 @@ MAPPING_CHAMPS = {
 # ──────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
+#Sélectionne le meilleur OCR Document candidat par scoring
+# api ocr_intelligent.api.field_matcher.trouver_meilleur_candidat(POST) -> dict
 def trouver_meilleur_candidat(nom_fichier, champs_formulaire=None):
     """
     Cherche le meilleur OCR Document pour remplir le formulaire.
@@ -327,7 +329,7 @@ def trouver_meilleur_candidat(nom_fichier, champs_formulaire=None):
 # ──────────────────────────────────────────────────────────────────────
 # CHARGEMENT DES CANDIDATS
 # ──────────────────────────────────────────────────────────────────────
-
+# Récupère les OCR Documents portant le même nom de fichier
 def _charger_candidats(nom_fichier):
     """
     Retourne la liste des OCR Documents pour ce nom de fichier,
@@ -405,7 +407,10 @@ def _normaliser_date(val):
     """
     return re.sub(r'[\s]', '', val)
 
-
+# ──────────────────────────────────────────────────────────────────────
+# SCORE DE COMPATIBILITE
+# ──────────────────────────────────────────────────────────────────────
+#Mesure la cohérence entre une valeur OCR et une valeur formulaire
 def _score_compatibilite(champ_ocr, valeur_ocr, texte_brut, valeur_formulaire=None):
     """
     Calcule un score de compatibilité entre la valeur OCR et le contexte.

@@ -8,6 +8,7 @@ from frappe import _
 import secrets
 
 @frappe.whitelist(allow_guest=True)
+# api ocr_intelligent.api.login.login(POST) -> dict
 def login(email=None, password=None):
     """
     Authentifie un utilisateur et retourne un token Bearer (api_key:api_secret).

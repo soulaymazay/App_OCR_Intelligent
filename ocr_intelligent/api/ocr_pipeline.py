@@ -174,7 +174,7 @@ def _extraire_textes_date_cheque_image_global(chemin_img):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# PIPELINE PRINCIPAL
+# PIPELINE PRINCIPAL #api ocr_pipeline.pipeline_complet (POST) Reçoit fichier → sauvegarde temp → frappe.enqueue job async (OCR + détection type + extraction)
 # ──────────────────────────────────────────────────────────────────────
 #Point d'entrée — reçoit le fichier et lance le job async
 @frappe.whitelist()
@@ -278,6 +278,7 @@ def pipeline_complet(file_url="", source_doctype="", payment_method=""):
 
 @frappe.whitelist()
 #Polling — vérifie si le job est terminé
+#api ocr_pipeline.get_ocr_statut(GET) Polling cache Redis (en_cours / termine / erreur)
 def get_ocr_statut(job_id):
     status = frappe.cache().get_value("ocr_pipeline_status_{}".format(job_id))
 
@@ -389,12 +390,16 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
             "bon_commande":  "Bon de Commande",
             "facture_vente": "Facture de Vente",
             "invoice_vente": "Facture de Vente",
+            "fiche_article":       "Fiche Article (Sage)",
+            "fiche_nomenclature":  "Fiche Nomenclature (BOM)",
             "inconnu":       "Document inconnu",
         }
+        
 
         TYPES_REJETES = {
             "cheque", "traite", "bon_livraison", "devis",
-            "bon_commande", "facture_vente", "invoice_vente"
+            "bon_commande", "facture_vente", "invoice_vente",
+             "fiche_article", "fiche_nomenclature",
         }
 
         # Signaux minimaux indiquant qu'il s'agit bien d'un document commercial
@@ -411,8 +416,20 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
             "net a payer", "net apayer",
             "amount", "subtotal", "tax",
         ]
-        
+        # Signaux spécifiques aux exports Sage (hors périmètre "facture d'achat")
+        _SIGNAUX_FICHE_ARTICLE = [
+            "fiche article", "gestion stock", "stock site", "unité stock",
+            "gestion lot", "gestion série", "gestion péremption",
+            "coefficient ua-us", "coefficient uv-us", "unité conditionnement",
+            "seuil de réappro", "qté mini réappro",
+        ]
 
+        _SIGNAUX_FICHE_NOMENCLATURE = [
+            "fiche nomenclature", "nomenclature (bom)", "composants (bom",
+            "bom items", "gamme (routing)", "taux de perte", "valuation rate",
+            "quantité produite", "matériau de rebut",
+        ]
+        
         def _msg_rejet(type_detecte):
             """Construit le message d'erreur avec le type détecté."""
             label = _LABELS_REJETES.get(type_detecte, type_detecte)
@@ -433,7 +450,32 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
         def _titre_rejet(type_detecte):
             label = _LABELS_REJETES.get(type_detecte, "Document refusé")
             return "Document refusé — {}".format(label)
+        
+        # ── Correction prioritaire : Fiche Article / Fiche Nomenclature ──────
+        # extraire_champs_entete() peut mal classer ces exports Sage/ERP
+        # (ex: confondu avec une facture de vente). On surcorrige avec les
+        # signaux dédiés déjà définis plus haut (_SIGNAUX_FICHE_ARTICLE /
+        # _SIGNAUX_FICHE_NOMENCLATURE), qui n'étaient pas encore exploités.
+        _texte_detect = texte_brut.lower()
 
+        _est_nomenclature = (
+            "fiche nomenclature" in _texte_detect
+            or "nomenclature (bom)" in _texte_detect
+            or sum(1 for s in _SIGNAUX_FICHE_NOMENCLATURE if s in _texte_detect) >= 2
+        )
+        _est_fiche_article = (
+            not _est_nomenclature
+            and (
+                "fiche article" in _texte_detect
+                or sum(1 for s in _SIGNAUX_FICHE_ARTICLE if s in _texte_detect) >= 2
+            )
+        )
+
+        if _est_nomenclature:
+            type_doc = "fiche_nomenclature"
+        elif _est_fiche_article:
+            type_doc = "fiche_article"
+    
         # Rejet immédiat si le type détecté est clairement un type non-facture
         if type_doc in TYPES_REJETES:
             _stocker_resultat(job_token, {
@@ -443,7 +485,7 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
                 "erreur":        _msg_rejet(type_doc),
             })
             return
-
+        
         # ── Passe 2 : si le signal facture est absent, relancer OCR avec
         #    preprocessing agressif (défloutage) avant de rejeter ─────────
         _texte_principal = texte_brut
@@ -497,7 +539,7 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
                 val_existante = champs_valides.get(champ_m)
                 if _doit_remplacer_montant(val_existante, float(val_m)):
                     champs_valides[champ_m] = str(round(val_m, 3))
-
+        lignes_articles = _extraire_lignes_articles(chemin_tmp)
         analyse_nlp = analyser_contexte(
             texte             = texte_brut,
             champs_regex      = champs_valides,
@@ -664,7 +706,6 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
             if existants:
                 ocr_doc_name = existants[0]["name"]
                 break
-
         if ocr_doc_name:
             frappe.db.set_value("OCR Document", ocr_doc_name,
                 "extracted_text", texte_brut)
@@ -714,6 +755,7 @@ def _executer_pipeline_job(chemin_tmp, nom_fichier, ext,
             "nom_fichier":          nom_fichier,
             "type_document":        type_doc,
             "champs_remplis":       champs_remplis,
+            "articles":             lignes_articles,
             "score_confiance":      score,
             "nombre_pages":         nb_pages,
             "methode_ocr":          methode,
@@ -1051,6 +1093,8 @@ def _executer_pipeline_payment_entry(chemin_tmp, texte_brut, score,
 
     statut = "Validé" if champs_remplis else "Validation requise"
     if ocr_doc_name:
+        frappe.db.set_value("OCR Document", ocr_doc_name,
+            "extracted_text", texte_brut)
         frappe.db.set_value("OCR Document", ocr_doc_name,
             "extracted_field", json.dumps(tous_champs, ensure_ascii=False, indent=2))
         frappe.db.set_value("OCR Document", ocr_doc_name,
@@ -1467,6 +1511,415 @@ def _extraire_montants_image(chemin_fichier):
         except Exception:
             pass
         return {}
+def _extraire_lignes_articles(chemin_fichier):
+    """
+    Extrait les lignes du tableau d'articles via détection de grille
+    (lignes horizontales/verticales) puis OCR ciblé par cellule.
+    Bien plus fiable que l'OCR en bloc pour les tableaux structurés.
+    """
+    try:
+        ext = os.path.splitext(chemin_fichier)[1].lower()
+        if ext == ".pdf":
+            from pdf2image import convert_from_path
+            pages = convert_from_path(chemin_fichier, dpi=300)
+            if not pages:
+                return []
+            img_cv = cv2.cvtColor(np.array(pages[0]), cv2.COLOR_RGB2BGR)
+        else:
+            img_cv = cv2.imread(chemin_fichier)
+            if img_cv is None:
+                pil = PILImage.open(chemin_fichier).convert("RGB")
+                img_cv = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+        h, w = img_cv.shape[:2]
+        y0, y1 = int(h * 0.30), int(h * 0.75)
+        zone = img_cv[y0:y1, :]
+        gris = cv2.cvtColor(zone, cv2.COLOR_BGR2GRAY) if len(zone.shape) == 3 else zone
+
+        zh, zw = gris.shape[:2]
+        if zw < 2500:
+            scale = 2500 / zw
+            gris = cv2.resize(gris, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            zh, zw = gris.shape[:2]
+
+        binaire = cv2.adaptiveThreshold(
+            gris, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 25, 10
+        )
+
+        # ── Détection des lignes de grille ──────────────────────────
+        taille_h = max(20, zw // 30)
+        taille_v = max(20, zh // 40)
+
+        noyau_h = cv2.getStructuringElement(cv2.MORPH_RECT, (taille_h, 1))
+        lignes_h = cv2.morphologyEx(binaire, cv2.MORPH_OPEN, noyau_h, iterations=2)
+
+        noyau_v = cv2.getStructuringElement(cv2.MORPH_RECT, (1, taille_v))
+        lignes_v = cv2.morphologyEx(binaire, cv2.MORPH_OPEN, noyau_v, iterations=2)
+
+        # ── Coordonnées Y des séparateurs de lignes (rangées) ───────
+        profil_h = np.sum(lignes_h, axis=1)
+        seuil_h = profil_h.max() * 0.3 if profil_h.max() > 0 else 0
+        y_lignes = [y for y in range(len(profil_h)) if profil_h[y] > seuil_h]
+        y_groupes = _regrouper_positions(y_lignes, tolerance=10)
+
+        # ── Coordonnées X des séparateurs de colonnes ───────────────
+        profil_v = np.sum(lignes_v, axis=0)
+        seuil_v = profil_v.max() * 0.3 if profil_v.max() > 0 else 0
+        x_lignes = [x for x in range(len(profil_v)) if profil_v[x] > seuil_v]
+        x_groupes = _regrouper_positions(x_lignes, tolerance=10)
+
+        if len(y_groupes) < 2 or len(x_groupes) < 3:
+            # Grille non détectée correctement → fallback ancienne méthode
+            return _extraire_lignes_articles_fallback(gris)
+
+        # ── Identifier les colonnes par ordre (7 colonnes attendues) ─
+        # Référence | Désignation | Qté | P.HT | TVA | Remise | Montant HT
+        noms_colonnes_attendues = [
+            "reference", "designation", "qte", "prix_ht", "tva", "remise", "montant"
+        ]
+        nb_colonnes = len(x_groupes) - 1
+        if nb_colonnes < 3:
+            return _extraire_lignes_articles_fallback(gris)
+
+        # Mapper les colonnes disponibles vers les noms attendus
+        # (si le tableau a moins de colonnes détectées, on garde les plus probables :
+        #  référence, désignation, qté, prix, montant en priorité)
+        if nb_colonnes >= 7:
+            mapping_col = noms_colonnes_attendues
+        elif nb_colonnes == 6:
+            mapping_col = ["reference", "designation", "qte", "prix_ht", "remise", "montant"]
+        elif nb_colonnes == 5:
+            mapping_col = ["reference", "designation", "qte", "prix_ht", "montant"]
+        elif nb_colonnes == 4:
+            mapping_col = ["reference", "designation", "qte", "montant"]
+        else:
+            mapping_col = ["reference", "designation", "montant"]
+
+        pil_zone = PILImage.fromarray(gris)
+        lignes_extraites = []
+
+        # ── Parcourir chaque rangée (entre deux lignes horizontales) ─
+        for i in range(len(y_groupes) - 1):
+            ry0, ry1 = y_groupes[i], y_groupes[i + 1]
+            if ry1 - ry0 < 15:
+                continue
+
+            valeurs_cellules = {}
+
+            for j in range(min(nb_colonnes, len(mapping_col))):
+                cx0, cx1 = x_groupes[j], x_groupes[j + 1]
+                if cx1 - cx0 < 10:
+                    continue
+
+                marge_y = 3
+                marge_x = 3
+                cellule = pil_zone.crop((
+                    max(0, cx0 + marge_x), max(0, ry0 + marge_y),
+                    min(zw, cx1 - marge_x), min(zh, ry1 - marge_y)
+                ))
+
+                cw, ch = cellule.size
+                if cw < 5 or ch < 5:
+                    continue
+
+                cellule_big = cellule.resize((cw * 3, ch * 3), PILImage.LANCZOS)
+
+                nom_col = mapping_col[j]
+                if nom_col in ("qte", "prix_ht", "tva", "remise", "montant"):
+                    config_psm = "--oem 1 --psm 7 -c tessedit_char_whitelist=0123456789,.%"
+                else:
+                    config_psm = "--oem 1 --psm 7"
+
+                texte_cellule = pytesseract.image_to_string(
+                    cellule_big, lang="fra+eng", config=config_psm
+                ).strip()
+
+                valeurs_cellules[nom_col] = texte_cellule
+
+            reference = valeurs_cellules.get("reference", "").strip()
+            designation = valeurs_cellules.get("designation", "").strip()
+
+            if not reference and not designation:
+                continue
+            if len(designation) < 3 and len(reference) < 2:
+                continue
+
+            # Filtrer les lignes d'en-tête du tableau elles-mêmes
+            if re.search(r'(?:r[ée]f[ée]rence|d[ée]signation|qt[ée]|p\.?ht)', 
+                         (reference + " " + designation).lower()):
+                continue
+
+            qte_brute = valeurs_cellules.get("qte", "")
+            prix_brut = valeurs_cellules.get("prix_ht", "")
+            montant_brut = valeurs_cellules.get("montant", "")
+
+            qte = _parse_montant_float(qte_brute) if qte_brute else None
+            prix_ht = _parse_montant_float(prix_brut) if prix_brut else None
+            montant = _parse_montant_float(montant_brut) if montant_brut else None
+
+            if not montant or montant <= 0:
+                continue
+
+            if not qte or qte <= 0:
+                qte = round(montant / prix_ht) if prix_ht and prix_ht > 0 else 1
+
+            if not prix_ht or prix_ht <= 0:
+                prix_ht = round(montant / qte, 3) if qte else montant
+
+            lignes_extraites.append({
+                "reference":   reference or "N/A",
+                "designation": designation or reference or "Article",
+                "qte":         int(round(qte)),
+                "prix_ht":     prix_ht,
+                "montant":     montant,
+            })
+
+        return lignes_extraites
+
+    except Exception as e:
+        try:
+            frappe.log_error("Extraction lignes articles: {}".format(e), "OCR Articles")
+        except Exception:
+            pass
+        return []
+
+
+def _regrouper_positions(positions, tolerance=10):
+    """Regroupe des positions proches (lignes de grille détectées en pixels multiples)."""
+    if not positions:
+        return []
+    positions = sorted(positions)
+    groupes = [positions[0]]
+    for p in positions[1:]:
+        if p - groupes[-1] > tolerance:
+            groupes.append(p)
+    return groupes
+
+
+def _extraire_lignes_articles(chemin_fichier):
+    """
+    Extrait les lignes du tableau d'articles via OCR texte + regex tolérante.
+    Chaque ligne retournée inclut un champ "estime" (bool) : True si qté/prix
+    ont été déduits par calcul plutôt que lus directement dans l'image.
+    """
+    try:
+        ext = os.path.splitext(chemin_fichier)[1].lower()
+        if ext == ".pdf":
+            from pdf2image import convert_from_path
+            pages = convert_from_path(chemin_fichier, dpi=300)
+            if not pages:
+                return []
+            img_cv = cv2.cvtColor(np.array(pages[0]), cv2.COLOR_RGB2BGR)
+        else:
+            img_cv = cv2.imread(chemin_fichier)
+            if img_cv is None:
+                pil = PILImage.open(chemin_fichier).convert("RGB")
+                img_cv = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+        h, w = img_cv.shape[:2]
+        zone = img_cv[int(h * 0.30):int(h * 0.75), :]
+        gris = cv2.cvtColor(zone, cv2.COLOR_BGR2GRAY) if len(zone.shape) == 3 else zone
+
+        hh, ww = gris.shape[:2]
+        if ww < 2500:
+            scale = 2500 / ww
+            gris = cv2.resize(gris, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+        binaire = cv2.adaptiveThreshold(
+            gris, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 15
+        )
+        pil_img = PILImage.fromarray(binaire)
+
+        texte_tableau = pytesseract.image_to_string(
+            pil_img, lang="fra+eng", config="--oem 1 --psm 6"
+        )
+
+        lignes = texte_tableau.splitlines()
+
+        pattern_reference = re.compile(r'\b([A-Z]{1,4}[\s\-]?\d{2,6}[\s\-]?[A-Z]?\d?)\b')
+
+        PREFIXES_EXCLUS = re.compile(
+            r'^(?:FACT|FACTURE|BL|BC|INV|TVA|FODEC|MF|CIN|TEL|REF)\b',
+            re.IGNORECASE
+        )
+
+        MOTS_FOOTER = re.compile(
+            r'(?:total|tva|remise|fodec|timbre|montant\s*ht|net\s*[àa]\s*payer|'
+            r'facture\s+[àa]\s+la\s+somm|cachet|signature|mficin|mf\s*/\s*cin)',
+            re.IGNORECASE
+        )
+
+        lignes_extraites = []
+        i = 0
+        while i < len(lignes):
+            ligne = lignes[i].strip()
+            if not ligne:
+                i += 1
+                continue
+
+            m_ref = pattern_reference.search(ligne)
+            if not m_ref:
+                i += 1
+                continue
+
+            reference = m_ref.group(1).strip()
+
+            if re.fullmatch(r'(?:19|20)\d{2}', reference):
+                i += 1
+                continue
+            if PREFIXES_EXCLUS.match(reference):
+                i += 1
+                continue
+            if MOTS_FOOTER.search(ligne):
+                i += 1
+                continue
+
+            reste_ligne = ligne[m_ref.end():].strip(" |:-")
+            fenetre = [reste_ligne] + lignes[i+1:i+3]
+            texte_fenetre = " ".join(f.strip() for f in fenetre if f and f.strip())
+
+            if MOTS_FOOTER.search(texte_fenetre):
+                i += 1
+                continue
+
+            texte_avant_barre = texte_fenetre.split("|")[0].strip()
+            m_desig = re.match(
+                r'^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\s\.\-]*?)(?=\s+\d{1,3}[,\.]\d{2,3}\b|\s+\d{2,6}\s*$|\s+\d{2,6}\s+\d|\s*%)',
+                texte_avant_barre
+            )
+            designation = m_desig.group(1).strip() if m_desig else texte_avant_barre.strip()
+            designation = re.sub(r'\s+', ' ', designation).strip(" .|")
+
+            m_dim = re.match(
+                r'^\s*(\d{1,4}\s*[xX]\s*\d{1,4})',
+                texte_avant_barre[len(designation):].strip()
+            )
+            if m_dim:
+                designation = (designation + " " + m_dim.group(1)).strip()
+
+            if len(designation) < 3:
+                i += 1
+                continue
+
+            texte_fenetre_nums = re.sub(
+                r'\b\d{1,4}\s*[xX]\s*\d{1,4}\b', ' ', texte_fenetre
+            )
+
+            pourcentages_pos = set()
+            for m_pct in re.finditer(r'(\d{1,3}(?:[,\.]\d{1,2})?)\s*%', texte_fenetre_nums):
+                pourcentages_pos.add(round(float(m_pct.group(1).replace(",", ".")), 3))
+
+            nombres_ordonnes = [
+                n for n in _extraire_tous_nombres_tunisiens(texte_fenetre_nums)
+                if n > 0 and round(n, 3) not in pourcentages_pos
+            ]
+
+            if not nombres_ordonnes:
+                i += 1
+                continue
+
+            montant = max(nombres_ordonnes)
+            qte_val = nombres_ordonnes[0]
+            candidats_ht = [n for n in nombres_ordonnes if n != qte_val and n != montant]
+            prix_ht = candidats_ht[0] if candidats_ht else None
+
+            estime = False
+
+            if qte_val != round(qte_val) or qte_val <= 0 or qte_val > 100000:
+                qte_val = None
+
+            if qte_val is None or len(nombres_ordonnes) <= 2:
+                # Cas où l'OCR n'a détecté qu'un ou deux nombres (souvent
+                # uniquement le montant) : on retombe sur un calcul de repli,
+                # marqué comme "estimé" pour signaler la vérification manuelle.
+                estime = True
+                autres = sorted([n for n in nombres_ordonnes if n != montant])
+                prix_ht_fallback = next((n for n in autres if n < montant), None)
+                qte_val = 1
+                if prix_ht_fallback and prix_ht_fallback > 0:
+                    ratio = montant / prix_ht_fallback
+                    if 0.5 <= ratio < 100000:
+                        qte_val = max(1, round(ratio))
+                if prix_ht is None:
+                    prix_ht = prix_ht_fallback
+
+            qte = int(qte_val)
+
+            if prix_ht:
+                attendu = prix_ht * qte
+                if attendu > 0:
+                    facteur = montant / attendu
+                    if facteur > 500:
+                        montant = round(montant / 1000, 3)
+                    elif facteur < 0.002:
+                        montant = round(montant * 1000, 3)
+
+            if not prix_ht:
+                estime = True
+                prix_ht = round(montant / qte, 3) if qte else montant
+
+            lignes_extraites.append({
+                "reference":   reference,
+                "designation": designation,
+                "qte":         qte,
+                "prix_ht":     prix_ht,
+                "montant":     montant,
+                "estime":      estime,
+            })
+
+            i += 3
+
+        return lignes_extraites
+
+    except Exception as e:
+        try:
+            frappe.log_error("Extraction lignes articles: {}".format(e), "OCR Articles")
+        except Exception:
+            pass
+        return []
+
+@frappe.whitelist()
+def rechercher_item_correspondant(reference="", designation=""):
+    """
+    Cherche un Item existant correspondant à la référence/désignation OCR.
+    """
+    reference   = (reference or "").strip()
+    designation = (designation or "").strip()
+
+    if reference:
+        item_code = frappe.db.get_value(
+            "Item Supplier",
+            {"supplier_part_no": reference},
+            "parent"
+        )
+        if item_code:
+            return {"item_code": item_code, "match_type": "reference_exacte"}
+
+    if designation:
+        item_exact = frappe.db.get_value(
+            "Item", {"item_name": designation}, "item_code"
+        )
+        if item_exact:
+            return {"item_code": item_exact, "match_type": "nom_exact"}
+
+        try:
+            from rapidfuzz import fuzz
+            items = frappe.get_list("Item", fields=["item_code", "item_name"], limit=500)
+            meilleur, meilleur_score = None, 0
+            for it in items:
+                score = fuzz.token_sort_ratio(designation.lower(), (it.item_name or "").lower())
+                if score > meilleur_score:
+                    meilleur, meilleur_score = it, score
+            if meilleur and meilleur_score >= 75:
+                return {
+                    "item_code": meilleur.item_code,
+                    "match_type": "fuzzy",
+                    "score": meilleur_score,
+                }
+        except ImportError:
+            pass
+
+    return {"item_code": None, "match_type": "aucun"}    
 
 
 def _parser_montants(texte):
